@@ -71,16 +71,15 @@ class OptionCard extends StatelessWidget {
                         ],
                 ),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 20,
+                  horizontal: 14,
+                  vertical: 12,
                 ),
                 child: Row(
                   children: [
-                    // Letter Badge
                     AnimatedContainer(
                       duration: 200.ms,
-                      width: 36,
-                      height: 36,
+                      width: 28,
+                      height: 28,
                       decoration: BoxDecoration(
                         color: isSelected
                             ? borderColor
@@ -96,11 +95,12 @@ class OptionCard extends StatelessWidget {
                                     ? Icons.check_rounded
                                     : Icons.close_rounded,
                                 color: Colors.white,
-                                size: 20,
+                                size: 16,
                               )
                             : Text(
                                 label,
                                 style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 13,
                                   fontWeight: FontWeight.bold,
                                   color: isSelected
                                       ? Colors.white
@@ -112,14 +112,12 @@ class OptionCard extends StatelessWidget {
                       ),
                     ),
 
-                    const SizedBox(width: 16),
-
-                    // Option Text
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         option,
                         style: GoogleFonts.plusJakartaSans(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: isSelected
                               ? FontWeight.w600
                               : FontWeight.normal,

@@ -6,9 +6,8 @@ import '../../../shared/theme/practice_theme.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
 
-/// Long-press secondary menu (PRD §5.2): report a problem, rate the
-/// question's difficulty, or mute its topic. All effects are local and
-/// take hold from the next lane load onward.
+/// Long-press / "More" menu: tune the feed (show less of a topic, hide
+/// it), rate the question's difficulty, or report a problem.
 class LongPressMenuSheet extends ConsumerWidget {
   final PracticeQuestion question;
 
@@ -27,13 +26,17 @@ class LongPressMenuSheet extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final controller = ref.read(feedControllerProvider.notifier);
-    final topic = (question.topic == null || question.topic!.trim().isEmpty) ? 'General' : question.topic!;
+    final topic = question.topicName;
 
-    void notify(String message) {
+    void notify(String message, {VoidCallback? onUndo}) {
       final messenger = ScaffoldMessenger.of(context);
       Navigator.of(context).pop();
       messenger.showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(milliseconds: 1600)),
+        SnackBar(
+          content: Text(message),
+          duration: Duration(milliseconds: onUndo == null ? 1600 : 4000),
+          action: onUndo == null ? null : SnackBarAction(label: 'Undo', onPressed: onUndo),
+        ),
       );
     }
 
@@ -59,12 +62,21 @@ class LongPressMenuSheet extends ConsumerWidget {
               ),
             ),
             ListTile(
-              leading: const Icon(Icons.error_outline_rounded, color: PracticeTheme.error),
-              title: Text('Report a problem', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Wrong answer key, typo, or bad question'),
+              leading: const Icon(Icons.thumb_down_rounded, color: PracticeTheme.primary),
+              title: Text('Show less of "$topic"', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Your For You feed moves on right away'),
               onTap: () {
-                controller.reportQuestion(question.id);
-                notify('Reported — removed from your feed.');
+                controller.showLessOf(topic);
+                notify("You'll see less of $topic.", onUndo: () => controller.undoShowLess(topic));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_rounded, color: PracticeTheme.primary),
+              title: Text('Hide "$topic"', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Unhide anytime from the lane switcher'),
+              onTap: () {
+                controller.muteTopic(topic);
+                notify('$topic is hidden from your feed.', onUndo: () => controller.unmuteTopic(topic));
               },
             ),
             ListTile(
@@ -72,7 +84,7 @@ class LongPressMenuSheet extends ConsumerWidget {
               title: Text('Too easy', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
               onTap: () {
                 controller.markTooEasy(question);
-                notify("Got it — you'll see this less in Mixed.");
+                notify("Got it — you'll see this one less.");
               },
             ),
             ListTile(
@@ -84,11 +96,12 @@ class LongPressMenuSheet extends ConsumerWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.block_rounded, color: PracticeTheme.primary),
-              title: Text('Mute "$topic"', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+              leading: const Icon(Icons.error_outline_rounded, color: PracticeTheme.error),
+              title: Text('Report a problem', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600)),
+              subtitle: const Text('Wrong answer key, typo, or bad question'),
               onTap: () {
-                controller.muteTopic(topic);
-                notify('Muted — won\'t show up in Mixed anymore.');
+                controller.reportQuestion(question.id);
+                notify('Reported — removed from your feed.');
               },
             ),
           ],

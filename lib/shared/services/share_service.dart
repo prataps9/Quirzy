@@ -71,6 +71,33 @@ $description
     await Share.share(text, subject: 'I unlocked an achievement on Quirzy!');
   }
 
+  /// Shares a practice question as a challenge, without revealing the
+  /// answer.
+  static Future<void> shareQuestion({
+    required String topic,
+    required String questionText,
+    required List<String> options,
+  }) async {
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    final optionLines = [
+      for (var i = 0; i < options.length; i++)
+        '${letters[i % letters.length]}) ${options[i]}',
+    ].join('\n');
+    final text =
+        '''
+🧠 Can you answer this? ($topic)
+
+$questionText
+
+$optionLines
+
+Practice more on Quirzy #Quirzy
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'A $topic question for you'),
+    );
+  }
+
   /// Get emoji based on score
   static String _getScoreEmoji(double percentage) {
     if (percentage == 100) return '🏆';

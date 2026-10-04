@@ -10,7 +10,7 @@ import '../services/practice_content_service.dart';
 
 IconData _iconForLane(FeedLaneType type) {
   switch (type) {
-    case FeedLaneType.mixed:
+    case FeedLaneType.forYou:
       return Icons.explore_rounded;
     case FeedLaneType.topic:
       return Icons.layers_rounded;
@@ -23,7 +23,7 @@ IconData _iconForLane(FeedLaneType type) {
   }
 }
 
-/// Swipe-right drawer (PRD §5.2 / §F3): pick a lane, feed reloads there.
+/// Swipe-right drawer: pick a lane, unhide topics, toggle Focus Mode.
 class LaneSwitcherSheet extends ConsumerWidget {
   const LaneSwitcherSheet({super.key});
 
@@ -38,10 +38,12 @@ class LaneSwitcherSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final lanesAsync = ref.watch(feedLanesProvider);
-    final currentLaneId = ref.watch(feedControllerProvider).lane.id;
+    final hidden = ref.watch(hiddenTopicsProvider).value ?? const <String>[];
+    final feedState = ref.watch(feedControllerProvider);
+    final controller = ref.read(feedControllerProvider.notifier);
+    final mutedText = isDark ? Colors.white38 : Colors.black38;
 
     return SafeArea(
       child: Container(
@@ -50,7 +52,7 @@ class LaneSwitcherSheet extends ConsumerWidget {
           color: isDark ? PracticeTheme.surfaceDark : PracticeTheme.surfaceLight,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -85,80 +87,165 @@ class LaneSwitcherSheet extends ConsumerWidget {
                   padding: const EdgeInsets.symmetric(vertical: 24),
                   child: Text('Could not load lanes.', style: GoogleFonts.plusJakartaSans()),
                 ),
-                data: (lanes) => ListView.separated(
+                data: (lanes) => ListView(
                   shrinkWrap: true,
-                  itemCount: lanes.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 4),
-                  itemBuilder: (context, i) {
-                    final lane = lanes[i];
-                    final selected = lane.id == currentLaneId;
-                    return Material(
-                      color: Colors.transparent,
-                      child: ListTile(
+                  children: [
+                    for (final lane in lanes)
+                      _LaneTile(
+                        lane: lane,
+                        selected: lane.id == feedState.lane.id,
+                        isDark: isDark,
                         onTap: () {
                           HapticFeedback.selectionClick();
-                          ref.read(feedControllerProvider.notifier).switchLane(lane, restorePosition: true);
+                          controller.switchLane(lane, restorePosition: true);
                           Navigator.of(context).pop();
                         },
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        tileColor: selected ? PracticeTheme.primary.withOpacity(0.08) : null,
-                        leading: Icon(_iconForLane(lane.type), color: selected ? PracticeTheme.primary : (isDark ? Colors.white54 : Colors.black45)),
-                        title: Text(
-                          lane.label,
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 14,
-                            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                            color: selected ? PracticeTheme.primary : (isDark ? Colors.white : Colors.black87),
+                        onToggleDownload: () async {
+                          HapticFeedback.selectionClick();
+                          await ref
+                              .read(practiceContentServiceProvider)
+                              .setDownloaded(lane.label, !lane.downloaded);
+                          ref.invalidate(feedLanesProvider);
+                        },
+                      ),
+                    if (hidden.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _SectionLabel('Hidden topics', color: mutedText),
+                      for (final topic in hidden)
+                        ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                          leading: Icon(Icons.visibility_off_rounded, color: mutedText),
+                          title: Text(
+                            topic,
+                            style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                          trailing: TextButton(
+                            onPressed: () => controller.unmuteTopic(topic),
+                            child: const Text('Unhide'),
                           ),
                         ),
-                        trailing: lane.type == FeedLaneType.topic
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '${lane.count}',
-                                    style: GoogleFonts.plusJakartaSans(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDark ? Colors.white38 : Colors.black38,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    tooltip: lane.downloaded ? 'Downloaded — won\'t be removed' : 'Keep offline',
-                                    onPressed: () async {
-                                      HapticFeedback.selectionClick();
-                                      await ref
-                                          .read(practiceContentServiceProvider)
-                                          .setDownloaded(lane.label, !lane.downloaded);
-                                      ref.invalidate(feedLanesProvider);
-                                    },
-                                    icon: Icon(
-                                      lane.downloaded ? Icons.check_circle_rounded : Icons.download_rounded,
-                                      size: 20,
-                                      color: lane.downloaded
-                                          ? PracticeTheme.primary
-                                          : (isDark ? Colors.white38 : Colors.black38),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                '${lane.count}',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? Colors.white38 : Colors.black38,
-                                ),
-                              ),
-                      ),
-                    );
-                  },
+                    ],
+                  ],
                 ),
               ),
             ),
+            const Divider(height: 20),
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              value: feedState.focusMode,
+              onChanged: controller.setFocusMode,
+              title: Text(
+                'Focus mode',
+                style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(
+                'Answer or skip before scrolling on',
+                style: GoogleFonts.plusJakartaSans(fontSize: 12, color: mutedText),
+              ),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  final Color color;
+
+  const _SectionLabel(this.text, {required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: Text(
+        text.toUpperCase(),
+        style: GoogleFonts.plusJakartaSans(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.6,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _LaneTile extends StatelessWidget {
+  final FeedLane lane;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+  final VoidCallback onToggleDownload;
+
+  const _LaneTile({
+    required this.lane,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+    required this.onToggleDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = isDark ? Colors.white38 : Colors.black38;
+    final count = Text(
+      '${lane.count}',
+      style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: muted),
+    );
+
+    Widget? trailing;
+    if (lane.type == FeedLaneType.topic) {
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          count,
+          const SizedBox(width: 4),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: lane.downloaded ? 'Downloaded — won\'t be removed' : 'Keep offline',
+            onPressed: onToggleDownload,
+            icon: Icon(
+              lane.downloaded ? Icons.check_circle_rounded : Icons.download_rounded,
+              size: 20,
+              color: lane.downloaded ? PracticeTheme.primary : muted,
+            ),
+          ),
+        ],
+      );
+    } else if (!lane.isInfinite) {
+      trailing = count;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          onTap: onTap,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          tileColor: selected ? PracticeTheme.primary.withOpacity(0.08) : null,
+          leading: Icon(
+            _iconForLane(lane.type),
+            color: selected ? PracticeTheme.primary : (isDark ? Colors.white54 : Colors.black45),
+          ),
+          title: Text(
+            lane.label,
+            style: GoogleFonts.plusJakartaSans(
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              color: selected ? PracticeTheme.primary : (isDark ? Colors.white : Colors.black87),
+            ),
+          ),
+          subtitle: lane.isInfinite
+              ? Text(
+                  'Adapts to what you like and skip',
+                  style: GoogleFonts.plusJakartaSans(fontSize: 12, color: muted),
+                )
+              : null,
+          trailing: trailing,
         ),
       ),
     );

@@ -43,6 +43,24 @@ class PracticeQuestion {
   }
 }
 
+extension PracticeQuestionKeys on PracticeQuestion {
+  /// Topic name with the store's "General" fallback for untagged questions.
+  String get topicName =>
+      (topic == null || topic!.trim().isEmpty) ? 'General' : topic!;
+
+  /// Ids alone can collide across topics (generated ids fall back to
+  /// `null_0`-style values), so engagement data is keyed by topic too.
+  String get engagementKey => '$topicName|$id';
+}
+
+/// When a question was last shown and how many times, for recycling.
+class SeenRecord {
+  final int lastSeenMs;
+  final int count;
+
+  const SeenRecord({required this.lastSeenMs, required this.count});
+}
+
 /// One topic bucket in the local content store — the data behind a
 /// per-topic lane, including whether it's protected from eviction
 /// ("downloaded").
@@ -60,9 +78,9 @@ class TopicSummary {
   });
 }
 
-/// The kind of lane a [FeedLane] represents — mirrors ScrollPrep's lane list
-/// (Mixed, per-topic, weak topics, revision vault, bookmarks).
-enum FeedLaneType { mixed, topic, weakTopics, revision, bookmarks }
+/// The kind of lane a [FeedLane] represents: the adaptive For You feed,
+/// one topic, weak topics, the revision vault, or saved questions.
+enum FeedLaneType { forYou, topic, weakTopics, revision, bookmarks }
 
 /// One entry in the Lane Switcher (swipe-right / lane-chip tap).
 class FeedLane {
@@ -80,11 +98,13 @@ class FeedLane {
     this.downloaded = false,
   });
 
-  static const mixedDefault = FeedLane(
-    type: FeedLaneType.mixed,
-    id: 'mixed',
-    label: 'Mixed',
+  static const forYou = FeedLane(
+    type: FeedLaneType.forYou,
+    id: 'for_you',
+    label: 'For You',
   );
+
+  bool get isInfinite => type == FeedLaneType.forYou;
 
   FeedLane copyWith({int? count, bool? downloaded}) => FeedLane(
     type: type,
@@ -95,19 +115,33 @@ class FeedLane {
   );
 }
 
-/// Per-question state within the currently loaded lane: has it been
-/// answered, skipped, or bookmarked.
+/// Per-question state within the currently loaded lane.
+///
+/// [uid] is unique per card instance (the same question can appear twice
+/// in an endless feed) and is what the page view keys on.
 class FeedCardState {
+  final int uid;
   final PracticeQuestion question;
   final int? selectedOption;
   final bool skipped;
   final bool bookmarked;
+  final bool liked;
+
+  /// Why the feed picked this card, e.g. "Because you liked Physics".
+  final String? reason;
+
+  /// Inserted on request (Deep Dive "Similar"), so re-ranking keeps it.
+  final bool pinned;
 
   const FeedCardState({
+    required this.uid,
     required this.question,
     this.selectedOption,
     this.skipped = false,
     this.bookmarked = false,
+    this.liked = false,
+    this.reason,
+    this.pinned = false,
   });
 
   bool get isResolved => selectedOption != null || skipped;
@@ -118,12 +152,17 @@ class FeedCardState {
     int? selectedOption,
     bool? skipped,
     bool? bookmarked,
+    bool? liked,
   }) {
     return FeedCardState(
+      uid: uid,
       question: question,
       selectedOption: selectedOption ?? this.selectedOption,
       skipped: skipped ?? this.skipped,
       bookmarked: bookmarked ?? this.bookmarked,
+      liked: liked ?? this.liked,
+      reason: reason,
+      pinned: pinned,
     );
   }
 }
@@ -145,12 +184,25 @@ class FeedState {
   final bool showHints;
   final int startIndex;
 
+  /// Bumped each time a lane (re)loads; the screen jumps to [startIndex]
+  /// only when this changes, so appended or re-ranked cards never move
+  /// the user.
+  final int laneEpoch;
+
+  /// Whether more cards can still be appended; when false the feed ends
+  /// with a closing page.
+  final bool hasMore;
+
+  /// Every topic with content is hidden, so the feed is empty by choice.
+  final bool allTopicsHidden;
+  final bool pendingCaughtUpNotice;
+
   FeedState({
     required this.lane,
     this.cards = const [],
     this.loading = true,
     this.error,
-    this.focusMode = true,
+    this.focusMode = false,
     this.sessionAnswered = 0,
     this.sessionCorrect = 0,
     DateTime? sessionStart,
@@ -160,9 +212,13 @@ class FeedState {
     this.pendingTargetBanner = false,
     this.showHints = true,
     this.startIndex = 0,
+    this.laneEpoch = 0,
+    this.hasMore = false,
+    this.allTopicsHidden = false,
+    this.pendingCaughtUpNotice = false,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
-  factory FeedState.initial() => FeedState(lane: FeedLane.mixedDefault);
+  factory FeedState.initial() => FeedState(lane: FeedLane.forYou);
 
   double get sessionAccuracy =>
       sessionAnswered == 0 ? 0 : (sessionCorrect / sessionAnswered) * 100;
@@ -181,6 +237,10 @@ class FeedState {
     bool? pendingTargetBanner,
     bool? showHints,
     int? startIndex,
+    int? laneEpoch,
+    bool? hasMore,
+    bool? allTopicsHidden,
+    bool? pendingCaughtUpNotice,
   }) {
     return FeedState(
       lane: lane ?? this.lane,
@@ -198,6 +258,11 @@ class FeedState {
       pendingTargetBanner: pendingTargetBanner ?? this.pendingTargetBanner,
       showHints: showHints ?? this.showHints,
       startIndex: startIndex ?? this.startIndex,
+      laneEpoch: laneEpoch ?? this.laneEpoch,
+      hasMore: hasMore ?? this.hasMore,
+      allTopicsHidden: allTopicsHidden ?? this.allTopicsHidden,
+      pendingCaughtUpNotice:
+          pendingCaughtUpNotice ?? this.pendingCaughtUpNotice,
     );
   }
 }

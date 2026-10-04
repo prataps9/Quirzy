@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../home/providers/home_stats_provider.dart';
 import '../models/feed_models.dart';
 import '../services/feed_bookmark_service.dart';
+import '../services/feed_engagement_service.dart';
+import '../services/feed_ranker.dart';
 import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
 import '../services/practice_content_service.dart';
@@ -13,9 +17,20 @@ import '../services/xp_service.dart';
 const int kFeedDailyTarget = 50;
 const int kFeedBreakNudgeMinutes = 25;
 
+/// Below this many eligible questions For You plays through once instead
+/// of recycling, so a tiny pool never loops on the same few cards.
+const int kMinInfinitePool = 12;
+
+/// Leaving an unanswered card faster than this counts as a quick pass.
+const Duration kQuickPass = Duration(seconds: 2);
+
+const int _batchSize = 8;
+const int _appendThreshold = 3;
+
 final feedStatsServiceProvider = Provider<FeedStatsService>((ref) => FeedStatsService());
 final feedBookmarkServiceProvider = Provider<FeedBookmarkService>((ref) => FeedBookmarkService());
 final feedRevisionServiceProvider = Provider<FeedRevisionService>((ref) => FeedRevisionService());
+final feedRankerProvider = Provider<FeedRanker>((ref) => FeedRanker());
 
 /// The full local question pool the feed draws from — see
 /// PracticeContentService.
@@ -47,31 +62,102 @@ final feedLanesProvider = FutureProvider<List<FeedLane>>((ref) async {
       .toList()
     ..sort((a, b) => b.count.compareTo(a.count));
 
-  final mixedCount = topicLanes.fold<int>(0, (sum, lane) => sum + lane.count);
-
   final weakTopics = await stats.getWeakTopics();
   final dueCount = await revision.getDueCount();
   final bookmarkCount = await bookmarks.getCount();
 
   return [
-    FeedLane(type: FeedLaneType.mixed, id: 'mixed', label: 'Mixed', count: mixedCount),
+    FeedLane.forYou,
     if (dueCount > 0)
       FeedLane(type: FeedLaneType.revision, id: 'revision', label: 'Revision Vault', count: dueCount),
     if (weakTopics.isNotEmpty)
       FeedLane(type: FeedLaneType.weakTopics, id: 'weak', label: 'My Weak Topics', count: weakTopics.length),
     if (bookmarkCount > 0)
-      FeedLane(type: FeedLaneType.bookmarks, id: 'bookmarks', label: 'Bookmarks', count: bookmarkCount),
+      FeedLane(type: FeedLaneType.bookmarks, id: 'bookmarks', label: 'Saved', count: bookmarkCount),
     ...topicLanes,
   ];
 });
 
+/// Topics hidden from the feed, for the lane switcher's Unhide list.
+final hiddenTopicsProvider = FutureProvider<List<String>>((ref) async {
+  final muted = await ref.watch(feedStatsServiceProvider).getMutedTopics();
+  return muted.toList()..sort();
+});
+
+/// One circle in Home's "Your topics" row.
+class TopicStory {
+  final String topic;
+  final int count;
+  final bool hasUnseen;
+
+  const TopicStory({
+    required this.topic,
+    required this.count,
+    required this.hasUnseen,
+  });
+}
+
+/// Your topics, ones with unseen questions first (they get a ring).
+final topicStoriesProvider = FutureProvider<List<TopicStory>>((ref) async {
+  final lanes = await ref.watch(feedLanesProvider.future);
+  final pool = await ref.watch(feedQuestionPoolProvider.future);
+  final engagement = ref.watch(feedEngagementServiceProvider);
+  await engagement.load();
+  final seen = engagement.seen;
+  final topicsWithUnseen = pool
+      .where((q) => !seen.containsKey(q.engagementKey))
+      .map((q) => q.topicName)
+      .toSet();
+  return lanes
+      .where((lane) => lane.type == FeedLaneType.topic)
+      .map((lane) => TopicStory(
+            topic: lane.label,
+            count: lane.count,
+            hasUnseen: topicsWithUnseen.contains(lane.label),
+          ))
+      .toList()
+    ..sort((a, b) {
+      if (a.hasUnseen != b.hasUnseen) return a.hasUnseen ? -1 : 1;
+      return b.count.compareTo(a.count);
+    });
+});
+
 final feedControllerProvider = NotifierProvider<FeedController, FeedState>(FeedController.new);
 
-/// Drives the practice feed: lane composition, per-question answer/skip/
-/// bookmark state, Focus Mode, session stats, and the local moderation +
-/// spaced-repetition side effects that go with each answer.
+/// Drives the practice feed.
+///
+/// For You is an endless, ranked feed that adapts within the session:
+/// liking a card, asking for less of a topic, or swiping quickly past
+/// two cards of one topic re-ranks everything after the current card,
+/// so the very next swipe reflects it. Other lanes are finite lists.
+/// Answers also feed the existing stats, revision vault and XP.
 class FeedController extends Notifier<FeedState> {
   List<PracticeQuestion> _fullPool = [];
+  final RankerSession _session = RankerSession();
+  final Stopwatch _dwell = Stopwatch();
+
+  List<PracticeQuestion> _eligible = [];
+  Set<String> _muted = {};
+  Set<String> _tooEasy = {};
+  Set<String> _bookmarkedIds = {};
+  Set<String> _dueKeys = {};
+  Map<String, TopicStat> _topicStats = {};
+
+  int _nextUid = 0;
+  int? _activeIndex;
+  bool _tabVisible = true;
+  bool _appResumed = true;
+  bool _visible = true;
+  bool _refillPending = false;
+  bool _caughtUpNotified = false;
+
+  /// Set by the feed screen so re-ranking waits until scrolling settles.
+  bool Function() isScrollIdle = () => true;
+
+  FeedEngagementService get _engagement => ref.read(feedEngagementServiceProvider);
+  FeedRanker get _ranker => ref.read(feedRankerProvider);
+  FeedStatsService get _stats => ref.read(feedStatsServiceProvider);
+  bool get _tinyPool => _eligible.length < kMinInfinitePool;
 
   @override
   FeedState build() {
@@ -82,94 +168,166 @@ class FeedController extends Notifier<FeedState> {
   Future<void> _init() async {
     try {
       _fullPool = await ref.read(feedQuestionPoolProvider.future);
+      await _engagement.load(
+        liveKeys: _fullPool.map((q) => q.engagementKey).toSet(),
+      );
 
       final prefs = await SharedPreferences.getInstance();
-      final focusMode = prefs.getBool('feed_focus_mode') ?? true;
+      final focusMode = prefs.getBool('feed_focus_mode') ?? false;
       final showHints = !(prefs.getBool('feed_hint_dismissed') ?? false);
-
-      final laneId = prefs.getString('feed_last_lane_id') ?? 'mixed';
-      final laneLabel = prefs.getString('feed_last_lane_label') ?? 'Mixed';
-      final laneTypeName = prefs.getString('feed_last_lane_type') ?? FeedLaneType.mixed.name;
-      final laneType = FeedLaneType.values.firstWhere(
-        (t) => t.name == laneTypeName,
-        orElse: () => FeedLaneType.mixed,
-      );
-
       state = state.copyWith(focusMode: focusMode, showHints: showHints);
-      await switchLane(
-        FeedLane(type: laneType, id: laneId, label: laneLabel),
-        restorePosition: true,
-      );
+
+      final lane = _restoredLane(prefs);
+      await switchLane(lane, restorePosition: true);
+      if (state.cards.isEmpty && !lane.isInfinite) {
+        await switchLane(FeedLane.forYou);
+      }
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }
   }
 
+  FeedLane _restoredLane(SharedPreferences prefs) {
+    final typeName = prefs.getString('feed_last_lane_type');
+    final type = FeedLaneType.values.firstWhere(
+      (t) => t.name == typeName,
+      orElse: () => FeedLaneType.forYou,
+    );
+    if (type == FeedLaneType.forYou) return FeedLane.forYou;
+    return FeedLane(
+      type: type,
+      id: prefs.getString('feed_last_lane_id') ?? FeedLane.forYou.id,
+      label: prefs.getString('feed_last_lane_label') ?? FeedLane.forYou.label,
+    );
+  }
+
+  Future<void> _refreshInputs() async {
+    final reported = await _stats.getReportedQuestions();
+    _muted = await _stats.getMutedTopics();
+    _tooEasy = await _stats.getDeprioritizedQuestions();
+    _topicStats = await _stats.getTopicStats();
+    _bookmarkedIds = await ref.read(feedBookmarkServiceProvider).getBookmarkedIds();
+    final due = await ref.read(feedRevisionServiceProvider).getDueQuestions();
+    _dueKeys = due.map((q) => q.engagementKey).toSet();
+    _eligible = _fullPool
+        .where((q) => !reported.contains(q.id) && !_muted.contains(q.topicName))
+        .toList();
+  }
+
+  RankerSnapshot _snapshot() => RankerSnapshot(
+        pool: _eligible,
+        tooEasyIds: _tooEasy,
+        interest: _engagement.interestSnapshot(),
+        topicStats: _topicStats,
+        seen: _engagement.seen,
+        dueKeys: _dueKeys,
+      );
+
+  FeedCardState _card(PracticeQuestion question, {String? reason, bool pinned = false}) {
+    return FeedCardState(
+      uid: _nextUid++,
+      question: question,
+      bookmarked: _bookmarkedIds.contains(question.id),
+      liked: _engagement.isLiked(question.engagementKey),
+      reason: reason,
+      pinned: pinned,
+    );
+  }
+
+  List<FeedCardState> _cardsFrom(RankedBatch batch) =>
+      batch.picks.map((p) => _card(p.question, reason: p.reason)).toList();
+
+  /// True the first time this session that fresh questions have run out.
+  bool _caughtUpNow(RankedBatch batch) {
+    if (_caughtUpNotified) return false;
+    if (batch.unseenRemaining > 0 || !batch.picks.any((p) => p.recycled)) return false;
+    _caughtUpNotified = true;
+    return true;
+  }
+
   Future<List<PracticeQuestion>> _questionsForLane(FeedLane lane) async {
-    final stats = ref.read(feedStatsServiceProvider);
-    final muted = await stats.getMutedTopics();
-    final reported = await stats.getReportedQuestions();
-    final deprioritized = await stats.getDeprioritizedQuestions();
-
-    List<PracticeQuestion> base = _fullPool.where((q) {
-      if (reported.contains(q.id)) return false;
-      final topic = q.topic;
-      if (topic != null && muted.contains(topic)) return false;
-      return true;
-    }).toList();
-
     switch (lane.type) {
-      case FeedLaneType.mixed:
-        final list = base.where((q) => !deprioritized.contains(q.id)).toList();
-        list.shuffle();
-        return list;
+      case FeedLaneType.forYou:
+        return const [];
       case FeedLaneType.topic:
-        final list = base
-            .where((q) => ((q.topic == null || q.topic!.trim().isEmpty) ? 'General' : q.topic!) == lane.label)
-            .toList();
-        list.shuffle();
-        return list;
+        return _freshFirst(_eligible.where((q) => q.topicName == lane.label));
       case FeedLaneType.weakTopics:
-        final weak = await stats.getWeakTopics();
-        final list = base
-            .where((q) => weak.contains((q.topic == null || q.topic!.trim().isEmpty) ? 'General' : q.topic!))
-            .toList();
-        list.shuffle();
-        return list;
+        final weak = await _stats.getWeakTopics();
+        return _freshFirst(_eligible.where((q) => weak.contains(q.topicName)));
       case FeedLaneType.revision:
-        final revision = ref.read(feedRevisionServiceProvider);
-        return revision.getDueQuestions();
+        return ref.read(feedRevisionServiceProvider).getDueQuestions();
       case FeedLaneType.bookmarks:
-        final bookmarks = ref.read(feedBookmarkServiceProvider);
-        return bookmarks.getBookmarks();
+        return ref.read(feedBookmarkServiceProvider).getBookmarks();
     }
   }
 
-  Future<void> switchLane(FeedLane lane, {bool restorePosition = false}) async {
-    state = state.copyWith(loading: true, lane: lane);
+  /// Unseen questions (shuffled) first, then the least recently seen.
+  List<PracticeQuestion> _freshFirst(Iterable<PracticeQuestion> questions) {
+    final seen = _engagement.seen;
+    final unseen = questions.where((q) => !seen.containsKey(q.engagementKey)).toList()..shuffle();
+    final seenBefore = questions.where((q) => seen.containsKey(q.engagementKey)).toList()
+      ..sort((a, b) => seen[a.engagementKey]!.lastSeenMs.compareTo(seen[b.engagementKey]!.lastSeenMs));
+    return [...unseen, ...seenBefore];
+  }
 
-    final questions = await _questionsForLane(lane);
-    final bookmarkedIds = await ref.read(feedBookmarkServiceProvider).getBookmarkedIds();
-    final cards = questions
-        .map((q) => FeedCardState(question: q, bookmarked: bookmarkedIds.contains(q.id)))
-        .toList();
+  Future<void> switchLane(FeedLane lane, {bool restorePosition = false}) async {
+    _closeActive();
+    if (state.lane.isInfinite) _releaseAfter(_activeIndex ?? -1);
+    _activeIndex = null;
+    _refillPending = false;
+    unawaited(_engagement.flush());
+
+    final target = lane.isInfinite ? FeedLane.forYou : lane;
+    state = state.copyWith(loading: true, lane: target);
+    await _refreshInputs();
+
+    var cards = <FeedCardState>[];
+    var hasMore = false;
+    var caughtUp = false;
+    if (target.isInfinite) {
+      if (_tinyPool) _session.reset();
+      final batch = _ranker.nextBatch(
+        _snapshot(),
+        _session,
+        size: _tinyPool ? _eligible.length : _batchSize,
+        allowRecycle: !_tinyPool,
+      );
+      cards = _cardsFrom(batch);
+      hasMore = !_tinyPool && batch.picks.isNotEmpty;
+      caughtUp = _caughtUpNow(batch);
+    } else {
+      cards = (await _questionsForLane(target)).map((q) => _card(q)).toList();
+    }
 
     final prefs = await SharedPreferences.getInstance();
     var startIndex = 0;
-    if (restorePosition) {
-      final ts = prefs.getInt('feed_lane_ts_${lane.id}');
+    if (restorePosition && !target.isInfinite) {
+      final ts = prefs.getInt('feed_lane_ts_${target.id}');
       if (ts != null && DateTime.now().millisecondsSinceEpoch - ts < const Duration(hours: 24).inMilliseconds) {
-        final saved = prefs.getInt('feed_lane_pos_${lane.id}') ?? 0;
+        final saved = prefs.getInt('feed_lane_pos_${target.id}') ?? 0;
         startIndex = cards.isEmpty ? 0 : saved.clamp(0, cards.length - 1);
       }
     }
 
-    await prefs.setString('feed_last_lane_id', lane.id);
-    await prefs.setString('feed_last_lane_label', lane.label);
-    await prefs.setString('feed_last_lane_type', lane.type.name);
+    await prefs.setString('feed_last_lane_id', target.id);
+    await prefs.setString('feed_last_lane_label', target.label);
+    await prefs.setString('feed_last_lane_type', target.type.name);
 
-    state = state.copyWith(lane: lane, cards: cards, loading: false, startIndex: startIndex);
+    state = state.copyWith(
+      lane: target,
+      cards: cards,
+      loading: false,
+      startIndex: startIndex,
+      laneEpoch: state.laneEpoch + 1,
+      hasMore: hasMore,
+      allTopicsHidden: _fullPool.isNotEmpty && _muted.isNotEmpty && _eligible.isEmpty,
+      pendingCaughtUpNotice: caughtUp ? true : null,
+    );
+    ref.invalidate(topicStoriesProvider);
   }
+
+  /// Fresh ranking for For You (tapping its title, or "Go again").
+  Future<void> refreshForYou() => switchLane(FeedLane.forYou);
 
   Future<void> reshuffleCurrentLane() => switchLane(state.lane);
 
@@ -182,7 +340,121 @@ class FeedController extends Notifier<FeedState> {
     await switchLane(FeedLane(type: FeedLaneType.topic, id: 'topic:$topic', label: topic));
   }
 
+  /// Called when scrolling settles on [index]: closes the previous card's
+  /// dwell, marks this one seen, and tops up or re-ranks the feed.
+  void activate(int index) {
+    if (index == _activeIndex) return;
+    _closeActive();
+    _activeIndex = index;
+    if (index < 0 || index >= state.cards.length) return;
+
+    _engagement.markSeen(state.cards[index].question.engagementKey);
+    _dwell.reset();
+    if (_visible) _dwell.start();
+    if (_refillPending) {
+      _refillPending = false;
+      _refillAfter(index);
+    }
+    _maybeAppend(index);
+  }
+
+  /// Whether the Practice tab is the one on screen.
+  void setTabVisible(bool visible) {
+    _tabVisible = visible;
+    _syncDwell();
+  }
+
+  /// Whether the app is in the foreground.
+  void setAppResumed(bool resumed) {
+    _appResumed = resumed;
+    _syncDwell();
+  }
+
+  /// Dwell only counts while the feed is actually on screen; leaving it
+  /// also saves pending signals.
+  void _syncDwell() {
+    final visible = _tabVisible && _appResumed;
+    if (visible == _visible) return;
+    _visible = visible;
+    if (visible && _activeIndex != null) {
+      _dwell.start();
+    } else {
+      _dwell.stop();
+      unawaited(_engagement.flush());
+    }
+  }
+
+  void _closeActive() {
+    _dwell.stop();
+    final index = _activeIndex;
+    if (index == null || index < 0 || index >= state.cards.length) return;
+    final card = state.cards[index];
+    if (card.isResolved || card.liked) return;
+
+    final topic = card.question.topicName;
+    if (_dwell.elapsed < kQuickPass) {
+      _engagement.record(topic, EngagementSignal.quickPass);
+      final streak = (_session.quickPassStreak[topic] ?? 0) + 1;
+      _session.quickPassStreak[topic] = streak;
+      if (streak >= 2 && state.lane.isInfinite) _refillPending = true;
+    } else {
+      _session.quickPassStreak[topic] = 0;
+    }
+  }
+
+  void _releaseAfter(int index) {
+    _session.release(
+      state.cards.skip(index + 1).map((c) => c.question.engagementKey),
+    );
+  }
+
+  void _maybeAppend(int index) {
+    if (!state.lane.isInfinite || !state.hasMore) return;
+    if (index < state.cards.length - _appendThreshold) return;
+    final batch = _ranker.nextBatch(_snapshot(), _session, size: _batchSize);
+    final caughtUp = _caughtUpNow(batch);
+    state = state.copyWith(
+      cards: [...state.cards, ..._cardsFrom(batch)],
+      hasMore: batch.picks.isNotEmpty,
+      pendingCaughtUpNotice: caughtUp ? true : null,
+    );
+  }
+
+  /// Re-ranks every card after [index], keeping pinned ones, so the next
+  /// swipe reflects what the user just did. Waits for scrolling to stop.
+  void _refillAfter(int index) {
+    if (!state.lane.isInfinite || index < 0) return;
+    if (!isScrollIdle()) {
+      _refillPending = true;
+      return;
+    }
+    final kept = state.cards.take(index + 1).toList();
+    final tail = state.cards.skip(index + 1);
+    final pinned = tail.takeWhile((c) => c.pinned).toList();
+    _session.release(
+      tail.skip(pinned.length).map((c) => c.question.engagementKey),
+    );
+    final batch = _ranker.nextBatch(
+      _snapshot(),
+      _session,
+      size: _tinyPool ? _eligible.length : _batchSize,
+      allowRecycle: !_tinyPool,
+    );
+    final caughtUp = _caughtUpNow(batch);
+    state = state.copyWith(
+      cards: [...kept, ...pinned, ..._cardsFrom(batch)],
+      hasMore: !_tinyPool && batch.picks.isNotEmpty,
+      pendingCaughtUpNotice: caughtUp ? true : null,
+    );
+  }
+
+  void _refillAfterActive() {
+    final index = _activeIndex;
+    if (index != null) _refillAfter(index);
+  }
+
   Future<void> savePosition(int index) async {
+    if (state.lane.isInfinite) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('feed_lane_pos_${state.lane.id}', index);
     await prefs.setInt('feed_lane_ts_${state.lane.id}', DateTime.now().millisecondsSinceEpoch);
@@ -215,6 +487,15 @@ class FeedController extends Notifier<FeedState> {
       sessionCorrect: state.sessionCorrect + (correct ? 1 : 0),
     );
 
+    final topic = card.question.topicName;
+    _engagement.record(topic, EngagementSignal.answered);
+    _session.quickPassStreak[topic] = 0;
+    final stat = _topicStats[topic] ?? const TopicStat();
+    _topicStats[topic] = TopicStat(
+      attempts: stat.attempts + 1,
+      correct: stat.correct + (correct ? 1 : 0),
+    );
+
     await ref.read(feedStatsServiceProvider).recordAttempt(card.question.topic, correct);
     await ref.read(feedRevisionServiceProvider).recordOutcome(card.question, correct);
 
@@ -226,6 +507,7 @@ class FeedController extends Notifier<FeedState> {
     await _afterAttempt();
   }
 
+  /// Reveals the answer without answering ("Skip" / "Show answer").
   Future<void> skipCurrent(int index) async {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
@@ -234,6 +516,7 @@ class FeedController extends Notifier<FeedState> {
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = card.copyWith(skipped: true);
     state = state.copyWith(cards: cards, sessionAnswered: state.sessionAnswered + 1);
+    _session.quickPassStreak[card.question.topicName] = 0;
 
     await _afterAttempt();
   }
@@ -263,6 +546,40 @@ class FeedController extends Notifier<FeedState> {
     state = state.copyWith(pendingTargetBanner: false);
   }
 
+  void acknowledgeCaughtUpNotice() {
+    state = state.copyWith(pendingCaughtUpNotice: false);
+  }
+
+  /// Double-tap: like only, never unlike.
+  void like(int index) {
+    if (index < 0 || index >= state.cards.length) return;
+    if (!state.cards[index].liked) _setLiked(index, true);
+  }
+
+  void toggleLike(int index) {
+    if (index < 0 || index >= state.cards.length) return;
+    _setLiked(index, !state.cards[index].liked);
+  }
+
+  void _setLiked(int index, bool liked) {
+    final card = state.cards[index];
+    final topic = card.question.topicName;
+    final cards = List<FeedCardState>.from(state.cards);
+    cards[index] = card.copyWith(liked: liked);
+    state = state.copyWith(cards: cards);
+
+    _engagement
+      ..setLiked(card.question.engagementKey, liked)
+      ..record(topic, liked ? EngagementSignal.like : EngagementSignal.unlike);
+    if (liked) {
+      _session.likes.update(topic, (n) => n + 1, ifAbsent: () => 1);
+      _session.quickPassStreak[topic] = 0;
+      _refillAfterActive();
+    } else {
+      _session.likes.update(topic, (n) => math.max(0, n - 1), ifAbsent: () => 0);
+    }
+  }
+
   Future<void> toggleBookmark(int index) async {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
@@ -274,24 +591,73 @@ class FeedController extends Notifier<FeedState> {
 
     final bookmarks = ref.read(feedBookmarkServiceProvider);
     if (newValue) {
+      _bookmarkedIds.add(card.question.id);
+      _engagement.record(card.question.topicName, EngagementSignal.save);
       await bookmarks.addBookmark(card.question);
     } else {
+      _bookmarkedIds.remove(card.question.id);
       await bookmarks.removeBookmark(card.question.id);
     }
     ref.invalidate(feedLanesProvider);
   }
 
+  void recordExplanationOpened(PracticeQuestion question) {
+    _engagement.record(question.topicName, EngagementSignal.explanationOpened);
+    _session.quickPassStreak[question.topicName] = 0;
+  }
+
+  /// Soft negative: the topic still appears, just much less.
+  void showLessOf(String topic) {
+    _engagement.record(topic, EngagementSignal.showLess);
+    _session.likes.remove(topic);
+    _session.quickPassStreak[topic] = math.max(2, _session.quickPassStreak[topic] ?? 0);
+    _refillAfterActive();
+  }
+
+  void undoShowLess(String topic) {
+    _engagement.record(topic, EngagementSignal.undoShowLess);
+    _session.quickPassStreak[topic] = 0;
+    _refillAfterActive();
+  }
+
+  /// Hides [topic] from every lane until unhidden.
   Future<void> muteTopic(String topic) async {
-    await ref.read(feedStatsServiceProvider).muteTopic(topic);
+    await _stats.muteTopic(topic);
+    await _refreshInputs();
+    _refillAfterActive();
     ref.invalidate(feedLanesProvider);
+    ref.invalidate(hiddenTopicsProvider);
+  }
+
+  Future<void> unmuteTopic(String topic) async {
+    await _stats.unmuteTopic(topic);
+    await _refreshInputs();
+    ref.invalidate(feedLanesProvider);
+    ref.invalidate(hiddenTopicsProvider);
+    if (state.cards.isEmpty) {
+      await switchLane(FeedLane.forYou);
+    } else {
+      _refillAfterActive();
+    }
+  }
+
+  Future<void> unmuteAllTopics() async {
+    for (final topic in await _stats.getMutedTopics()) {
+      await _stats.unmuteTopic(topic);
+    }
+    ref.invalidate(feedLanesProvider);
+    ref.invalidate(hiddenTopicsProvider);
+    await switchLane(FeedLane.forYou);
   }
 
   Future<void> reportQuestion(String questionId) async {
     await ref.read(feedStatsServiceProvider).reportQuestion(questionId);
+    await _refreshInputs();
     ref.invalidate(feedLanesProvider);
   }
 
   Future<void> markTooEasy(PracticeQuestion question) async {
+    _tooEasy.add(question.id);
     await ref.read(feedStatsServiceProvider).deprioritizeQuestion(question.id);
   }
 
@@ -314,15 +680,19 @@ class FeedController extends Notifier<FeedState> {
   }
 
   /// Inserts [question] right after [afterIndex] (or jumps to it if it's
-  /// already in the lane) — used when tapping a "Similar" question in the
+  /// already coming up) — used when tapping a "Similar" question in the
   /// Deep Dive drawer. Returns the index to scroll to.
   int insertNext(int afterIndex, PracticeQuestion question) {
     final cards = List<FeedCardState>.from(state.cards);
-    final existing = cards.indexWhere((c) => c.question.id == question.id);
+    final existing = cards.indexWhere(
+      (c) => c.question.engagementKey == question.engagementKey,
+      afterIndex + 1,
+    );
     if (existing != -1) return existing;
 
     final insertAt = (afterIndex + 1).clamp(0, cards.length);
-    cards.insert(insertAt, FeedCardState(question: question));
+    cards.insert(insertAt, _card(question, reason: 'Similar question', pinned: true));
+    if (state.lane.isInfinite) _session.enqueue(question);
     state = state.copyWith(cards: cards);
     return insertAt;
   }

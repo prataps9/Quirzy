@@ -20,6 +20,7 @@ import '../widgets/home_widgets.dart';
 import '../../explore/screens/explore_screen.dart';
 import '../widgets/home_cards.dart';
 import '../widgets/home_sections.dart';
+import '../widgets/topic_stories_row.dart';
 import '../providers/home_stats_provider.dart';
 import '../../../shared/providers/exam_provider.dart';
 import '../../onboarding/screens/exam_selection_screen.dart';
@@ -414,6 +415,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
       return;
     }
+    if (!mounted) return;
 
     // Navigate to the beautiful Gemini-like loading screen
     Navigator.push(
@@ -522,6 +524,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             textMain: textMain,
                             textSub: textSub,
                             primaryColor: primaryColor,
+                          ),
+                        ),
+                        SliverToBoxAdapter(
+                          child: TopicStoriesRow(
+                            isDark: isDark,
+                            primaryColor: primaryColor,
+                            textMain: textMain,
                           ),
                         ),
                         SliverToBoxAdapter(

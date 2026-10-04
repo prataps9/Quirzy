@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/providers/providers.dart';
 import 'home_screen.dart';
+import '../../feed/providers/feed_providers.dart';
 import '../../feed/screens/feed_screen.dart';
 import '../../flashcards/screens/screens.dart';
 import '../../profile/screens/screens.dart';
@@ -51,6 +52,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedIndex = ref.watch(tabIndexProvider);
+    ref.listen<int>(tabIndexProvider, (_, next) {
+      ref.read(feedControllerProvider.notifier).setTabVisible(next == 0);
+    });
 
     return Scaffold(
       extendBody: true,

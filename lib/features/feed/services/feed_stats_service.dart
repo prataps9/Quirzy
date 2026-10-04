@@ -78,6 +78,13 @@ class FeedStatsService {
   Future<void> muteTopic(String topic) => _addToSet(_mutedKey, topic);
   Future<Set<String>> getMutedTopics() => _readSet(_mutedKey);
 
+  Future<void> unmuteTopic(String topic) async {
+    final prefs = await SharedPreferences.getInstance();
+    final set = (prefs.getStringList(_mutedKey) ?? const []).toSet()
+      ..remove(topic);
+    await prefs.setStringList(_mutedKey, set.toList());
+  }
+
   Future<void> reportQuestion(String questionId) =>
       _addToSet(_reportedKey, questionId);
   Future<Set<String>> getReportedQuestions() => _readSet(_reportedKey);
