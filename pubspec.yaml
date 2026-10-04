@@ -116,17 +116,32 @@ dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/quirzy_translucent_morph.png"
+  image_path: "assets/icon/quirzy_icon.png"
+  adaptive_icon_background: "#0A0A0C"
+  adaptive_icon_foreground: "assets/icon/quirzy_icon_foreground.png"
   min_sdk_android: 21
   remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/icon/quirzy_icon.png"
+    background_color: "#0A0A0C"
+    theme_color: "#0A0A0C"
+  windows:
+    generate: true
+    image_path: "assets/icon/quirzy_icon.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/icon/quirzy_icon.png"
 
 flutter_native_splash:
-  color: "#FFFFFF"
-  image: assets/icon/quirzy_translucent_morph.png
+  color: "#0A0A0C"
+  image: assets/icon/quirzy_splash.png
+  fullscreen: true
   android_12:
-    image: assets/icon/quirzy_translucent_morph.png
-    color: "#FFFFFF"
-  web: false
+    color: "#0A0A0C"
+    image: assets/icon/quirzy_splash.png
+  web: true
 
 dependency_overrides:
   flutter_web_auth_2: ^4.0.0
@@ -161,7 +176,7 @@ flutter:
   assets:
     - assets/
     - assets/icon/
-    - assets/splash/
+    - assets/google_fonts/
     - assets/google_logo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see

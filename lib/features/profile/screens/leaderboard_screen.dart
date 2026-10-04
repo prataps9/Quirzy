@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../shared/appwrite/leaderboard/leaderboard_service.dart';
-import '../../../config/theme_config.dart';
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 
 /// Leaderboard Screen - Global rankings and competition
 class LeaderboardScreen extends StatefulWidget {
@@ -61,25 +61,44 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
 
     return Scaffold(
-      backgroundColor: isDark ? ThemeConfig.backgroundDark : ThemeConfig.backgroundLight,
       appBar: AppBar(
-        title: Text(
-          'Leaderboard',
-          style: GoogleFonts.plusJakartaSans(
-            fontWeight: FontWeight.bold,
-            color: isDark ? ThemeConfig.textPrimaryDark : ThemeConfig.textPrimaryLight,
+        title: const Text('Leaderboard'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: p.surface,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(color: p.border),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  color: p.accent,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                labelColor: p.onAccent,
+                unselectedLabelColor: p.textMuted,
+                labelStyle: t.labelLarge,
+                unselectedLabelStyle: t.labelLarge,
+                tabs: const [
+                  Tab(height: 38, child: _TabLabel(Icons.public, 'Global')),
+                  Tab(height: 38, child: _TabLabel(Icons.people, 'Friends')),
+                ],
+              ),
+            ),
           ),
-        ),
-        backgroundColor: isDark ? ThemeConfig.backgroundDark : ThemeConfig.backgroundLight,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.public), text: 'Global'),
-            Tab(icon: Icon(Icons.people), text: 'Friends'),
-          ],
         ),
         actions: [
           IconButton(
@@ -93,35 +112,29 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildGlobalLeaderboard(isDark),
-                _buildFriendsLeaderboard(isDark),
+                _buildGlobalLeaderboard(),
+                _buildFriendsLeaderboard(),
               ],
             ),
     );
   }
 
-  Widget _buildGlobalLeaderboard(bool isDark) {
+  Widget _buildGlobalLeaderboard() {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+
     if (_topPlayers.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.leaderboard, size: 64, color: Colors.grey),
+            Icon(Icons.leaderboard, size: 64, color: p.textMuted),
             const SizedBox(height: 16),
-            Text(
-              'No rankings yet',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: isDark ? ThemeConfig.textPrimaryDark : ThemeConfig.textPrimaryLight,
-              ),
-            ),
+            Text('No rankings yet', style: t.titleLarge),
             const SizedBox(height: 8),
             Text(
               'Start practicing to climb the leaderboard!',
-              style: GoogleFonts.plusJakartaSans(
-                color: isDark ? ThemeConfig.textSecondaryDark : ThemeConfig.textSecondaryLight,
-              ),
+              style: t.bodyMedium!.copyWith(color: p.textMuted),
             ),
           ],
         ),
@@ -142,7 +155,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
               totalXP: _userRank['totalXP'] as int? ?? 0,
               rank: _userRank['rank'] as String? ?? 'Unranked',
               isCurrentUser: true,
-              isDark: isDark,
             );
           }
           return const SizedBox.shrink();
@@ -155,36 +167,29 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
           totalXP: player['totalXP'] as int? ?? 0,
           rank: player['rank'] as String? ?? 'Unranked',
           isCurrentUser: false,
-          isDark: isDark,
-        ).animate(delay: (index * 50).ms).fadeIn().slideX(begin: 0.1, end: 0);
+        ).animate().fadeIn(duration: 200.ms);
       },
     );
   }
 
-  Widget _buildFriendsLeaderboard(bool isDark) {
+  Widget _buildFriendsLeaderboard() {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.people_outline, size: 64, color: Colors.grey),
+          Icon(Icons.people_outline, size: 64, color: p.textMuted),
           const SizedBox(height: 16),
-          Text(
-            'Friends Coming Soon!',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: isDark ? ThemeConfig.textPrimaryDark : ThemeConfig.textPrimaryLight,
-            ),
-          ),
+          Text('Friends Coming Soon!', style: t.titleLarge),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
               'Add friends to compete with them!',
               textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(
-                color: isDark ? ThemeConfig.textSecondaryDark : ThemeConfig.textSecondaryLight,
-              ),
+              style: t.bodyMedium!.copyWith(color: p.textMuted),
             ),
           ),
         ],
@@ -198,90 +203,99 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
     required int totalXP,
     required String rank,
     required bool isCurrentUser,
-    required bool isDark,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isCurrentUser
-            ? ThemeConfig.primaryColor.withOpacity(0.1)
-            : isDark
-                ? ThemeConfig.surfaceDark
-                : ThemeConfig.surfaceLight,
-        borderRadius: BorderRadius.circular(ThemeConfig.radiusLarge),
-        border: isCurrentUser
-            ? Border.all(color: ThemeConfig.primaryColor, width: 2)
-            : isDark
-                ? Border.all(color: Colors.white10)
-                : null,
-      ),
-      child: Row(
-        children: [
-          // Rank Number
-          Container(
-            width: 40,
-            height: 40,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: position <= 3
-                  ? [
-                      const Color(0xFFFFD700), // Gold
-                      const Color(0xFFC0C0C0), // Silver
-                      const Color(0xFFCD7F32), // Bronze
-                    ][position - 1]
-                  : isDark
-                      ? Colors.white10
-                      : Colors.grey[200],
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              '$position',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: position <= 3 ? Colors.white : ThemeConfig.textPrimaryLight,
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+
+    // Top 3 get accent treatments: first place is the solid accent fill,
+    // second and third use the soft accent tint.
+    final Color badgeColor;
+    final Color badgeTextColor;
+    if (position == 1) {
+      badgeColor = p.accent;
+      badgeTextColor = p.onAccent;
+    } else if (position <= 3) {
+      badgeColor = p.accentSoft;
+      badgeTextColor = p.accentText;
+    } else {
+      badgeColor = p.surfaceHigh;
+      badgeTextColor = p.text;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AppCard(
+        color: isCurrentUser ? p.accentSoft : null,
+        borderColor: isCurrentUser ? p.accentText : null,
+        child: Row(
+          children: [
+            // Rank Number
+            Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: badgeColor,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                '$position',
+                style: t.titleMedium!.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: badgeTextColor,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
+            const SizedBox(width: 16),
 
-          // Player Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  userName,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? ThemeConfig.textPrimaryDark : ThemeConfig.textPrimaryLight,
+            // Player Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    userName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: t.titleMedium,
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  rank,
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 12,
-                    color: isDark ? ThemeConfig.textSecondaryDark : ThemeConfig.textSecondaryLight,
-                  ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(rank, style: t.bodySmall),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
 
-          // XP
-          Text(
-            '$totalXP XP',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: ThemeConfig.primaryColor,
+            // XP
+            Text(
+              '$totalXP XP',
+              style: t.titleMedium!.copyWith(
+                fontWeight: FontWeight.w800,
+                color: p.accentText,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _TabLabel extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _TabLabel(this.icon, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: 6),
+        Text(label),
+      ],
     );
   }
 }

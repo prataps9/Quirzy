@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/content_providers.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/practice_content_service.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../home/widgets/home_widgets.dart';
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 
 class StudyNotesScreen extends ConsumerStatefulWidget {
   const StudyNotesScreen({super.key});
@@ -21,7 +21,6 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
   int _questionCount = 10;
   String _difficulty = 'medium';
 
-  static const _primaryColor = Color(0xFF5B13EC);
   static const _counts = [5, 10, 15, 20];
   static const _difficulties = ['easy', 'medium', 'hard'];
 
@@ -34,32 +33,17 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
   Future<void> _generate() async {
     final notes = _notesController.text.trim();
     if (notes.length < 100) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please enter at least 100 characters of notes (${notes.length}/100)',
-            style: GoogleFonts.plusJakartaSans(),
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showError('Please enter at least 100 characters of notes (${notes.length}/100)');
       return;
     }
 
     final isOnline = await ref.read(connectivityServiceProvider).checkIsOnline();
     if (!isOnline) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You\'re offline — connect to the internet to generate questions.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError('You\'re offline — connect to the internet to generate questions.');
       }
       return;
     }
-
-    HapticFeedback.lightImpact();
 
     Navigator.push(
       context,
@@ -95,41 +79,36 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context); // dismiss loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to generate: $e', style: GoogleFonts.plusJakartaSans()),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError('Failed to generate: $e');
       }
     }
   }
 
+  void _showError(String msg) {
+    final p = context.palette;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline_rounded, color: p.danger),
+            const SizedBox(width: 12),
+            Expanded(child: Text(msg)),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F8FC);
-    final surfaceColor = isDark ? const Color(0xFF1A1A1A) : Colors.white;
-    final textMain = isDark ? Colors.white : const Color(0xFF120D1B);
-    final textSub = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
 
     final charCount = _notesController.text.length;
     final hasEnough = charCount >= 100;
 
     return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor,
-        elevation: 0,
-        title: Text(
-          'Study Notes → Practice',
-          style: GoogleFonts.plusJakartaSans(
-            fontWeight: FontWeight.bold,
-            color: textMain,
-          ),
-        ),
-        iconTheme: IconThemeData(color: textMain),
-      ),
+      appBar: AppBar(title: const Text('Study Notes → Practice')),
       body: SafeArea(
         child: Column(
           children: [
@@ -140,26 +119,16 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Info banner
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            _primaryColor.withOpacity(0.1),
-                            const Color(0xFF8B5CF6).withOpacity(0.1),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _primaryColor.withOpacity(0.2)),
-                      ),
+                    AppCard(
+                      radius: AppRadius.control,
                       child: Row(
                         children: [
-                          const Icon(Icons.auto_awesome, color: Color(0xFF8B5CF6), size: 20),
+                          Icon(Icons.auto_awesome, color: p.accentText, size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Paste your study notes, lecture text, or any content — AI will turn it into practice questions for your feed.',
-                              style: GoogleFonts.plusJakartaSans(fontSize: 13, color: textSub),
+                              style: textTheme.bodySmall,
                             ),
                           ),
                         ],
@@ -168,140 +137,76 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
                     const SizedBox(height: 20),
 
                     // Notes input
-                    Text(
-                      'Study Notes',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: textMain,
-                      ),
-                    ),
+                    Text('Study Notes', style: textTheme.titleSmall),
                     const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: surfaceColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: hasEnough ? _primaryColor.withOpacity(0.4) : (isDark ? Colors.white12 : Colors.black12),
-                        ),
+                    TextField(
+                      controller: _notesController,
+                      maxLines: 12,
+                      style: textTheme.bodyMedium,
+                      decoration: InputDecoration(
+                        hintText: 'Paste your notes here...\n\nExample: "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce oxygen and energy in the form of glucose..."',
+                        enabledBorder: hasEnough
+                            ? OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(AppRadius.control),
+                                borderSide: BorderSide(color: p.accentText, width: 1.5),
+                              )
+                            : null,
                       ),
-                      child: TextField(
-                        controller: _notesController,
-                        maxLines: 12,
-                        style: GoogleFonts.plusJakartaSans(fontSize: 14, color: textMain),
-                        decoration: InputDecoration(
-                          hintText: 'Paste your notes here...\n\nExample: "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce oxygen and energy in the form of glucose..."',
-                          hintStyle: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 13),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          hasEnough ? 'Ready to generate' : '${100 - charCount} more characters needed',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 12,
-                            color: hasEnough ? Colors.green : Colors.orange,
-                            fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Text(
+                            hasEnough ? 'Ready to generate' : '${100 - charCount} more characters needed',
+                            style: textTheme.labelMedium!.copyWith(
+                              color: hasEnough ? p.success : p.streak,
+                            ),
                           ),
                         ),
-                        Text(
-                          '$charCount chars',
-                          style: GoogleFonts.plusJakartaSans(fontSize: 12, color: textSub),
-                        ),
+                        const SizedBox(width: 8),
+                        Text('$charCount chars', style: textTheme.bodySmall),
                       ],
                     ),
                     const SizedBox(height: 24),
 
                     // Question count selector
-                    Text(
-                      'Number of Questions',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: textMain,
-                      ),
-                    ),
+                    Text('Number of Questions', style: textTheme.titleSmall),
                     const SizedBox(height: 10),
                     Row(
-                      children: _counts.map((count) {
-                        final selected = count == _questionCount;
-                        return Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _questionCount = count),
-                            child: Container(
-                              margin: const EdgeInsets.only(right: 8),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: selected ? _primaryColor : surfaceColor,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: selected ? _primaryColor : (isDark ? Colors.white12 : Colors.black12),
-                                ),
-                              ),
-                              child: Text(
-                                '$count',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.bold,
-                                  color: selected ? Colors.white : textMain,
-                                ),
-                              ),
+                      children: [
+                        for (var i = 0; i < _counts.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _SelectPill(
+                              label: '${_counts[i]}',
+                              selected: _counts[i] == _questionCount,
+                              onTap: () => setState(() => _questionCount = _counts[i]),
                             ),
                           ),
-                        );
-                      }).toList(),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 20),
 
                     // Difficulty selector
-                    Text(
-                      'Difficulty',
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: textMain,
-                      ),
-                    ),
+                    Text('Difficulty', style: textTheme.titleSmall),
                     const SizedBox(height: 10),
                     Row(
-                      children: _difficulties.map((diff) {
-                        final selected = diff == _difficulty;
-                        final color = diff == 'easy'
-                            ? Colors.green
-                            : diff == 'medium'
-                                ? Colors.orange
-                                : Colors.red;
-                        return Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _difficulty = diff),
-                            child: Container(
-                              margin: const EdgeInsets.only(right: 8),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: selected ? color.withOpacity(0.15) : surfaceColor,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: selected ? color : (isDark ? Colors.white12 : Colors.black12),
-                                ),
-                              ),
-                              child: Text(
-                                diff[0].toUpperCase() + diff.substring(1),
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontWeight: FontWeight.bold,
-                                  color: selected ? color : textMain,
-                                ),
-                              ),
+                      children: [
+                        for (var i = 0; i < _difficulties.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _SelectPill(
+                              label: _difficulties[i][0].toUpperCase() + _difficulties[i].substring(1),
+                              selected: _difficulties[i] == _difficulty,
+                              onTap: () => setState(() => _difficulty = _difficulties[i]),
                             ),
                           ),
-                        );
-                      }).toList(),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -311,35 +216,53 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
             // Generate button
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: hasEnough ? _generate : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryColor,
-                    disabledBackgroundColor: _primaryColor.withOpacity(0.3),
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Add to Feed ($_questionCount Qs)',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              child: AppButton(
+                label: 'Add to Feed ($_questionCount Qs)',
+                icon: Icons.auto_awesome,
+                onPressed: hasEnough ? _generate : null,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A flat selectable pill: lime fill with dark text when selected, a
+/// hairline-bordered surface otherwise.
+class _SelectPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SelectPill({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? p.accent : p.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.chip),
+          side: BorderSide(color: selected ? p.accent : p.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleSmall!.copyWith(
+                color: selected ? p.onAccent : p.text,
+              ),
+            ),
+          ),
         ),
       ),
     );

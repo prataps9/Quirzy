@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#4B06DB</color>
-    
-    <!-- Widget Colors -->
-    <color name="widget_primary">#6C5CE7</color>
-    <color name="widget_secondary">#A29BFE</color>
-    <color name="widget_background_start">#6C5CE7</color>
-    <color name="widget_background_end">#4B06DB</color>
-    <color name="widget_text">#FFFFFF</color>
-    <color name="widget_text_secondary">#E0E0E0</color>
-    <color name="widget_accent">#00B894</color>
+    <color name="ic_launcher_background">#0A0A0C</color>
+
+    <!-- Widget colors (flat dark surface, lime accent) -->
+    <color name="widget_primary">#C6F432</color>
+    <color name="widget_secondary">#A0A0AB</color>
+    <color name="widget_background">#141418</color>
+    <color name="widget_border">#26262E</color>
+    <color name="widget_text">#F4F4F6</color>
+    <color name="widget_text_secondary">#A0A0AB</color>
+    <color name="widget_accent">#C6F432</color>
+    <color name="widget_on_accent">#0A0A0C</color>
 </resources>

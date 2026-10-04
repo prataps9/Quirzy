@@ -77,7 +77,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="▶  Start Quiz"
-            android:textColor="@color/widget_text"
+            android:textColor="@color/widget_on_accent"
             android:textSize="14sp"
             android:textStyle="bold" />
 

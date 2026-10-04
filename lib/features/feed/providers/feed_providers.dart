@@ -12,6 +12,7 @@ import '../services/feed_ranker.dart';
 import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
 import '../services/practice_content_service.dart';
+import '../services/streak_service.dart';
 import '../services/xp_service.dart';
 
 const int kFeedDailyTarget = 50;
@@ -144,6 +145,7 @@ class FeedController extends Notifier<FeedState> {
   Map<String, TopicStat> _topicStats = {};
 
   int _nextUid = 0;
+  int _rewardId = 0;
   int? _activeIndex;
   bool _tabVisible = true;
   bool _appResumed = true;
@@ -175,7 +177,13 @@ class FeedController extends Notifier<FeedState> {
       final prefs = await SharedPreferences.getInstance();
       final focusMode = prefs.getBool('feed_focus_mode') ?? false;
       final showHints = !(prefs.getBool('feed_hint_dismissed') ?? false);
-      state = state.copyWith(focusMode: focusMode, showHints: showHints);
+      final todayAnswered = await _stats.getTodayAnsweredCount();
+      state = state.copyWith(
+        focusMode: focusMode,
+        showHints: showHints,
+        todayAnswered: todayAnswered,
+        dailyTargetCelebrated: todayAnswered >= kFeedDailyTarget,
+      );
 
       final lane = _restoredLane(prefs);
       await switchLane(lane, restorePosition: true);
@@ -479,10 +487,12 @@ class FeedController extends Notifier<FeedState> {
     if (card.isResolved) return;
 
     final correct = optionIndex == card.question.correctIndex;
+    final combo = correct ? state.combo + 1 : 0;
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = card.copyWith(selectedOption: optionIndex);
     state = state.copyWith(
       cards: cards,
+      combo: combo,
       sessionAnswered: state.sessionAnswered + 1,
       sessionCorrect: state.sessionCorrect + (correct ? 1 : 0),
     );
@@ -499,12 +509,23 @@ class FeedController extends Notifier<FeedState> {
     await ref.read(feedStatsServiceProvider).recordAttempt(card.question.topic, correct);
     await ref.read(feedRevisionServiceProvider).recordOutcome(card.question, correct);
 
+    var leveledUpTo = 0;
+    final milestone = correct && combo % kFeedComboMilestone == 0;
     if (correct) {
-      await ref.read(xpServiceProvider).addXPToday(10);
-      ref.invalidate(homeStatsProvider);
+      final xp = ref.read(xpServiceProvider);
+      final levelBefore = (await xp.getLevel()).level;
+      await xp.addXPToday(kFeedXpPerCorrect + (milestone ? kFeedComboBonusXp : 0));
+      final levelAfter = (await xp.getLevel()).level;
+      if (levelAfter > levelBefore) leveledUpTo = levelAfter;
     }
 
-    await _afterAttempt();
+    final attempt = await _afterAttempt();
+    await _emitBestReward(
+      leveledUpTo: leveledUpTo,
+      goalReached: attempt.goalReached,
+      comboMilestone: milestone ? combo : 0,
+      firstOfDay: attempt.firstOfDay,
+    );
   }
 
   /// Reveals the answer without answering ("Skip" / "Show answer").
@@ -518,32 +539,69 @@ class FeedController extends Notifier<FeedState> {
     state = state.copyWith(cards: cards, sessionAnswered: state.sessionAnswered + 1);
     _session.quickPassStreak[card.question.topicName] = 0;
 
-    await _afterAttempt();
+    final attempt = await _afterAttempt();
+    await _emitBestReward(
+      leveledUpTo: 0,
+      goalReached: attempt.goalReached,
+      comboMilestone: 0,
+      firstOfDay: attempt.firstOfDay,
+    );
   }
 
-  Future<void> _afterAttempt() async {
+  /// Counts the attempt towards today and refreshes everything that shows
+  /// the streak, XP or daily goal.
+  Future<({bool firstOfDay, bool goalReached})> _afterAttempt() async {
     final prefs = await SharedPreferences.getInstance();
-    final today = DateTime.now().toIso8601String().split('T').first;
-    final key = 'feed_answered_count_$today';
-    final count = (prefs.getInt(key) ?? 0) + 1;
+    final key = StreakService.countKey(DateTime.now());
+    final before = prefs.getInt(key) ?? 0;
+    final count = before + 1;
     await prefs.setInt(key, count);
 
-    if (count >= kFeedDailyTarget && !state.dailyTargetCelebrated) {
-      state = state.copyWith(dailyTargetCelebrated: true, pendingTargetBanner: true);
-    }
+    final goalReached =
+        before < kFeedDailyTarget && count >= kFeedDailyTarget && !state.dailyTargetCelebrated;
+    state = state.copyWith(
+      todayAnswered: count,
+      dailyTargetCelebrated: goalReached ? true : null,
+    );
 
     final elapsedMinutes = DateTime.now().difference(state.sessionStart).inMinutes;
     if (elapsedMinutes >= kFeedBreakNudgeMinutes && !state.breakNudgeShown) {
       state = state.copyWith(breakNudgeShown: true, pendingBreakNudge: true);
     }
+
+    ref.invalidate(streakProvider);
+    ref.invalidate(homeStatsProvider);
+    ref.invalidate(xpTotalProvider);
+    return (firstOfDay: before == 0, goalReached: goalReached);
+  }
+
+  /// Shows at most one celebration per answer, most special first.
+  Future<void> _emitBestReward({
+    required int leveledUpTo,
+    required bool goalReached,
+    required int comboMilestone,
+    required bool firstOfDay,
+  }) async {
+    if (leveledUpTo > 0) {
+      _emitReward(FeedRewardKind.levelUp, leveledUpTo);
+    } else if (goalReached) {
+      _emitReward(FeedRewardKind.dailyGoal, kFeedDailyTarget);
+    } else if (comboMilestone > 0) {
+      _emitReward(FeedRewardKind.comboMilestone, comboMilestone);
+    } else if (firstOfDay) {
+      final streak = await ref.read(streakServiceProvider).getStreak();
+      _emitReward(FeedRewardKind.streak, streak.current);
+    }
+  }
+
+  void _emitReward(FeedRewardKind kind, int value) {
+    state = state.copyWith(
+      reward: FeedReward(id: ++_rewardId, kind: kind, value: value),
+    );
   }
 
   void acknowledgeBreakNudge() {
     state = state.copyWith(pendingBreakNudge: false);
-  }
-
-  void acknowledgeTargetBanner() {
-    state = state.copyWith(pendingTargetBanner: false);
   }
 
   void acknowledgeCaughtUpNotice() {

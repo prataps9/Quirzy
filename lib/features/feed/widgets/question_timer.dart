@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// Per-question count-up timer. Driven by its own [ValueNotifier] so only
 /// this small widget rebuilds each second — never the question card
@@ -53,11 +52,7 @@ class _QuestionTimerState extends State<QuestionTimer> {
             const SizedBox(width: 4),
             Text(
               '$minutes:$seconds',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: widget.color,
-              ),
+              style: Theme.of(context).textTheme.labelMedium!.copyWith(color: widget.color),
             ),
           ],
         );

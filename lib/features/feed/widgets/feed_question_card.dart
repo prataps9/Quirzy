@@ -1,8 +1,9 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-import '../../../shared/theme/practice_theme.dart';
+import '../../../shared/theme/app_palette.dart';
 import '../models/feed_models.dart';
 import 'option_card.dart';
 import 'question_timer.dart';
@@ -18,10 +19,10 @@ const List<String> kWrongAnswerReasons = [
 ///
 /// From top to bottom: a caption row (topic, why it was picked, timer),
 /// the question and options, then an action bar (like, explanation,
-/// share, more, save). Vertical swiping belongs to the enclosing
-/// PageView. The question box handles double-tap to like, long-press for
-/// the menu, and horizontal swipes for the solution or lane switcher.
-/// Options sit outside that region so answering stays instant.
+/// share, save). Vertical swiping belongs to the enclosing PageView. The
+/// question box handles double-tap to like, long-press for the menu, and
+/// horizontal swipes for the solution or lane switcher. Options sit
+/// outside that region so answering stays instant.
 class FeedQuestionCard extends StatefulWidget {
   final FeedCardState cardState;
   final bool isActive;
@@ -76,6 +77,8 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
   bool _showHeart = false;
   bool _showPeek = false;
   String? _selectedReason;
+  int _xpPops = 0;
+  int _shakes = 0;
 
   @override
   void initState() {
@@ -86,8 +89,16 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
   @override
   void didUpdateWidget(covariant FeedQuestionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.cardState.isResolved && widget.cardState.isResolved) {
-      _startPeek();
+    final justResolved = !oldWidget.cardState.isResolved && widget.cardState.isResolved;
+    if (!justResolved) return;
+    _startPeek();
+    final card = widget.cardState;
+    if (card.skipped) return;
+    if (card.isCorrect) {
+      _xpPops++;
+    } else {
+      _shakes++;
+      HapticFeedback.heavyImpact();
     }
   }
 
@@ -132,11 +143,19 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
     final card = widget.cardState;
     final question = card.question;
     final resolved = card.isResolved;
-    final muted = isDark ? Colors.white60 : Colors.black54;
+
+    final options = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ..._buildOptions(question, card, resolved),
+        if (resolved && _showPeek) _buildPeek(p, question, card),
+        if (resolved && !card.isCorrect && !card.skipped) _buildWrongReasons(p),
+      ],
+    );
 
     return SafeArea(
       top: false,
@@ -148,69 +167,64 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
             _Caption(
               topic: question.topicName,
               reason: card.reason,
-              mutedColor: muted,
               onTopicTap: widget.onOpenTopic,
               onMore: widget.onMore,
               timer: QuestionTimer(
                 paused: _paused || !widget.isActive || resolved,
-                color: muted,
+                color: p.textMuted,
               ),
             ),
             if (widget.positionInLane != null)
-              _LaneProgress(
-                position: widget.positionInLane!,
-                length: widget.laneLength,
-                isDark: isDark,
-              ),
+              _LaneProgress(position: widget.positionInLane!, length: widget.laneLength),
             const SizedBox(height: 8),
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onDoubleTap: _handleDoubleTap,
-                          onLongPressStart: _handleLongPressStart,
-                          onLongPressEnd: _handleLongPressEnd,
-                          onHorizontalDragEnd: _handleHorizontalDragEnd,
-                          child: _QuestionBox(
-                            text: question.questionText,
-                            isDark: isDark,
-                            showHeart: _showHeart,
-                          ),
-                        ),
-                        if (widget.showGestureHint)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              'double-tap to like · swipe left for solution · swipe right for lanes',
-                              textAlign: TextAlign.center,
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: muted.withOpacity(0.6),
-                              ),
+              child: Stack(
+                children: [
+                  LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onDoubleTap: _handleDoubleTap,
+                              onLongPressStart: _handleLongPressStart,
+                              onLongPressEnd: _handleLongPressEnd,
+                              onHorizontalDragEnd: _handleHorizontalDragEnd,
+                              child: _QuestionBox(text: question.questionText, showHeart: _showHeart),
                             ),
-                          ),
-                        const SizedBox(height: 12),
-                        ..._buildOptions(isDark, question, card, resolved),
-                        if (resolved && _showPeek) _buildPeek(isDark, question, card),
-                        if (resolved && !card.isCorrect && !card.skipped) _buildWrongReasons(isDark),
-                      ],
+                            if (widget.showGestureHint)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'double-tap to like · swipe left for solution · swipe right for lanes',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context).textTheme.bodySmall!.copyWith(fontSize: 11),
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            _shakes == 0 ? options : _Shake(key: ValueKey(_shakes), child: options),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (_xpPops > 0)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: IgnorePointer(child: _XpPop(key: ValueKey(_xpPops))),
+                    ),
+                ],
               ),
             ),
             _ActionBar(
               card: card,
               focusMode: widget.focusMode,
-              mutedColor: muted,
               onToggleLike: widget.onToggleLike,
               onExplain: widget.onExplain,
               onShare: widget.onShare,
@@ -223,12 +237,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     );
   }
 
-  List<Widget> _buildOptions(
-    bool isDark,
-    PracticeQuestion question,
-    FeedCardState card,
-    bool resolved,
-  ) {
+  List<Widget> _buildOptions(PracticeQuestion question, FeedCardState card, bool resolved) {
     const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
     return [
       for (var i = 0; i < question.options.length; i++)
@@ -241,7 +250,6 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
                 ? (card.selectedOption == i || i == question.correctIndex)
                 : card.selectedOption == i,
             isCorrect: resolved ? i == question.correctIndex : null,
-            isDark: isDark,
             onTap: resolved
                 ? null
                 : () {
@@ -253,7 +261,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     ];
   }
 
-  Widget _buildPeek(bool isDark, PracticeQuestion question, FeedCardState card) {
+  Widget _buildPeek(AppPalette p, PracticeQuestion question, FeedCardState card) {
     final explanation = question.explanation.trim();
     if (explanation.isEmpty) return const SizedBox.shrink();
     return AnimatedOpacity(
@@ -263,58 +271,53 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: (card.isCorrect ? PracticeTheme.success : PracticeTheme.error).withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
+          color: card.isCorrect ? p.successSoft : p.dangerSoft,
+          borderRadius: BorderRadius.circular(AppRadius.chip),
         ),
         child: Text(
           explanation,
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: isDark ? Colors.white70 : Colors.black87,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 13),
         ),
       ),
     );
   }
 
-  Widget _buildWrongReasons(bool isDark) {
+  Widget _buildWrongReasons(AppPalette p) {
+    final label = Theme.of(context).textTheme.labelSmall!;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Wrap(
         spacing: 8,
         runSpacing: 8,
-        children: kWrongAnswerReasons.map((reason) {
-          final selected = _selectedReason == reason;
-          return GestureDetector(
-            onTap: _selectedReason == null
-                ? () {
-                    setState(() => _selectedReason = reason);
-                    widget.onWrongReason(reason);
-                  }
-                : null,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: selected
-                    ? PracticeTheme.primary.withOpacity(0.12)
-                    : (isDark ? Colors.white10 : Colors.black.withOpacity(0.04)),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: selected ? PracticeTheme.primary : Colors.transparent),
-              ),
-              child: Text(
-                reason,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? PracticeTheme.primary : (isDark ? Colors.white60 : Colors.black54),
+        children: [
+          for (final reason in kWrongAnswerReasons)
+            GestureDetector(
+              onTap: _selectedReason == null
+                  ? () {
+                      setState(() => _selectedReason = reason);
+                      widget.onWrongReason(reason);
+                    }
+                  : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _selectedReason == reason ? p.accentSoft : p.surfaceHigh,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(
+                    color: _selectedReason == reason ? p.accentText : Colors.transparent,
+                  ),
+                ),
+                child: Text(
+                  reason,
+                  style: label.copyWith(
+                    color: _selectedReason == reason ? p.accentText : p.textMuted,
+                  ),
                 ),
               ),
             ),
-          );
-        }).toList(),
+        ],
       ),
     );
   }
@@ -325,7 +328,6 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
 class _Caption extends StatelessWidget {
   final String topic;
   final String? reason;
-  final Color mutedColor;
   final VoidCallback? onTopicTap;
   final VoidCallback onMore;
   final Widget timer;
@@ -333,7 +335,6 @@ class _Caption extends StatelessWidget {
   const _Caption({
     required this.topic,
     required this.reason,
-    required this.mutedColor,
     required this.onTopicTap,
     required this.onMore,
     required this.timer,
@@ -341,7 +342,8 @@ class _Caption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
     final initial = topic.trim().isEmpty ? '?' : topic.trim()[0].toUpperCase();
     return SizedBox(
       height: 40,
@@ -357,17 +359,10 @@ class _Caption extends StatelessWidget {
                     width: 28,
                     height: 28,
                     alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: PracticeTheme.primary.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
                     child: Text(
                       initial,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: PracticeTheme.primary,
-                      ),
+                      style: text.labelMedium!.copyWith(color: p.onAccent, fontWeight: FontWeight.w800),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -375,26 +370,17 @@ class _Caption extends StatelessWidget {
                     child: Text.rich(
                       TextSpan(
                         children: [
-                          TextSpan(
-                            text: topic,
-                            style: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.w800,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
-                          ),
+                          TextSpan(text: topic, style: const TextStyle(fontWeight: FontWeight.w800)),
                           if (reason != null)
                             TextSpan(
                               text: ' · $reason',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.w500,
-                                color: mutedColor,
-                              ),
+                              style: TextStyle(fontWeight: FontWeight.w500, color: p.textMuted),
                             ),
                         ],
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13),
+                      style: text.bodyMedium!.copyWith(fontSize: 13),
                     ),
                   ),
                 ],
@@ -406,7 +392,7 @@ class _Caption extends StatelessWidget {
           IconButton(
             tooltip: 'More',
             onPressed: onMore,
-            icon: Icon(Icons.more_horiz_rounded, color: mutedColor),
+            icon: Icon(Icons.more_horiz_rounded, color: p.textMuted),
           ),
         ],
       ),
@@ -417,9 +403,8 @@ class _Caption extends StatelessWidget {
 class _LaneProgress extends StatelessWidget {
   final int position;
   final int length;
-  final bool isDark;
 
-  const _LaneProgress({required this.position, required this.length, required this.isDark});
+  const _LaneProgress({required this.position, required this.length});
 
   @override
   Widget build(BuildContext context) {
@@ -428,24 +413,12 @@ class _LaneProgress extends StatelessWidget {
       children: [
         Expanded(
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: (position / total).clamp(0.0, 1.0),
-              minHeight: 3,
-              backgroundColor: isDark ? Colors.white12 : Colors.black12,
-              valueColor: const AlwaysStoppedAnimation(PracticeTheme.primary),
-            ),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            child: LinearProgressIndicator(value: (position / total).clamp(0.0, 1.0), minHeight: 3),
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          '$position/$length',
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white38 : Colors.black38,
-          ),
-        ),
+        Text('$position/$length', style: Theme.of(context).textTheme.bodySmall),
       ],
     );
   }
@@ -453,29 +426,28 @@ class _LaneProgress extends StatelessWidget {
 
 class _QuestionBox extends StatelessWidget {
   final String text;
-  final bool isDark;
   final bool showHeart;
 
-  const _QuestionBox({required this.text, required this.isDark, required this.showHeart});
+  const _QuestionBox({required this.text, required this.showHeart});
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Stack(
       alignment: Alignment.center,
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
-          decoration: PracticeTheme.cardDecoration(isDark: isDark),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          decoration: BoxDecoration(
+            color: p.surface,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            border: Border.all(color: p.border),
+          ),
           child: Text(
             text,
             textAlign: TextAlign.center,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 18,
-              height: 1.4,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : const Color(0xFF1A1A2E),
-            ),
+            style: Theme.of(context).textTheme.titleMedium!.copyWith(fontSize: 19, height: 1.4),
           ),
         ),
         IgnorePointer(
@@ -485,7 +457,7 @@ class _QuestionBox extends StatelessWidget {
             child: AnimatedScale(
               scale: showHeart ? 1.0 : 0.6,
               duration: const Duration(milliseconds: 200),
-              child: const Icon(Icons.favorite_rounded, color: PracticeTheme.accent, size: 84),
+              child: Icon(Icons.favorite_rounded, color: p.like, size: 84),
             ),
           ),
         ),
@@ -494,10 +466,66 @@ class _QuestionBox extends StatelessWidget {
   }
 }
 
+/// "+10 XP" floating up and fading out once, when an answer is correct.
+class _XpPop extends StatelessWidget {
+  const _XpPop({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 1100),
+      curve: Curves.easeOut,
+      builder: (context, t, _) {
+        final opacity = t < 0.2 ? t / 0.2 : (t > 0.7 ? (1 - t) / 0.3 : 1.0);
+        return Opacity(
+          opacity: opacity.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, 10 - 36 * t),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
+                child: Text(
+                  '+$kFeedXpPerCorrect XP',
+                  style: Theme.of(context).textTheme.labelLarge!.copyWith(
+                    color: p.onAccent,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A short horizontal shake, played once when mounted, for a wrong answer.
+class _Shake extends StatelessWidget {
+  final Widget child;
+
+  const _Shake({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 380),
+      builder: (context, t, child) => Transform.translate(
+        offset: Offset(math.sin(t * math.pi * 6) * (1 - t) * 9, 0),
+        child: child,
+      ),
+      child: child,
+    );
+  }
+}
+
 class _ActionBar extends StatelessWidget {
   final FeedCardState card;
   final bool focusMode;
-  final Color mutedColor;
   final VoidCallback onToggleLike;
   final VoidCallback onExplain;
   final VoidCallback onShare;
@@ -507,7 +535,6 @@ class _ActionBar extends StatelessWidget {
   const _ActionBar({
     required this.card,
     required this.focusMode,
-    required this.mutedColor,
     required this.onToggleLike,
     required this.onExplain,
     required this.onShare,
@@ -517,23 +544,24 @@ class _ActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final iconColor = isDark ? Colors.white : Colors.black87;
+    final p = context.palette;
     return SizedBox(
       height: 48,
       child: Row(
         children: [
-          _ActionIcon(
-            icon: card.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: card.liked ? PracticeTheme.accent : iconColor,
+          IconButton(
             tooltip: card.liked ? 'Unlike' : 'Like',
             onPressed: () {
               HapticFeedback.lightImpact();
               onToggleLike();
             },
+            icon: Icon(
+              card.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              color: card.liked ? p.like : p.text,
+            ),
           ),
-          _ActionIcon(icon: Icons.mode_comment_outlined, color: iconColor, tooltip: 'Explanation', onPressed: onExplain),
-          _ActionIcon(icon: Icons.send_rounded, color: iconColor, tooltip: 'Share', onPressed: onShare),
+          IconButton(tooltip: 'Explanation', onPressed: onExplain, icon: const Icon(Icons.mode_comment_outlined)),
+          IconButton(tooltip: 'Share', onPressed: onShare, icon: const Icon(Icons.send_rounded)),
           Expanded(
             child: card.isResolved
                 ? const SizedBox.shrink()
@@ -544,54 +572,20 @@ class _ActionBar extends StatelessWidget {
                         HapticFeedback.lightImpact();
                         onSkip();
                       },
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: Text(
-                        focusMode ? 'Skip ›' : 'Show answer',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: PracticeTheme.primary,
-                        ),
-                      ),
+                      child: Text(focusMode ? 'Skip ›' : 'Show answer', maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                   ),
           ),
-          _ActionIcon(
-            icon: card.bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-            color: card.bookmarked ? PracticeTheme.primary : iconColor,
+          IconButton(
             tooltip: card.bookmarked ? 'Remove from saved' : 'Save',
             onPressed: onToggleSave,
+            icon: Icon(
+              card.bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              color: card.bookmarked ? p.accentText : p.text,
+            ),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ActionIcon extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  const _ActionIcon({
-    required this.icon,
-    required this.color,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon, size: 24, color: color),
     );
   }
 }

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/content_providers.dart';
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 import 'study_material_screen.dart';
 
 class StudyMaterialEntryScreen extends ConsumerStatefulWidget {
@@ -18,8 +18,6 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
   bool _showNotes = false;
   bool _isGenerating = false;
 
-  static const _primaryColor = Color(0xFF5B13EC);
-
   @override
   void dispose() {
     _topicCtrl.dispose();
@@ -31,12 +29,11 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
     final topic = _topicCtrl.text.trim();
     if (topic.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter a topic', style: GoogleFonts.plusJakartaSans())),
+        const SnackBar(content: Text('Please enter a topic')),
       );
       return;
     }
 
-    HapticFeedback.lightImpact();
     setState(() => _isGenerating = true);
 
     try {
@@ -54,16 +51,24 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
       }
     } catch (e) {
       if (mounted) {
+        final p = context.palette;
+        final isLimit = e.toString().contains('daily_limit');
         final msg = e.toString().contains('daily_limit_reached')
             ? 'Daily limit reached (1 free/day). Upgrade to Pro for unlimited!'
             : 'Failed to generate: $e';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(msg, style: GoogleFonts.plusJakartaSans()),
-            backgroundColor: e.toString().contains('daily_limit') ? const Color(0xFF5B13EC) : Colors.red,
-            action: e.toString().contains('daily_limit')
-                ? SnackBarAction(label: 'Upgrade', textColor: Colors.white, onPressed: () {})
-                : null,
+            content: Row(
+              children: [
+                Icon(
+                  isLimit ? Icons.info_outline_rounded : Icons.error_outline_rounded,
+                  color: isLimit ? p.accentText : p.danger,
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text(msg)),
+              ],
+            ),
+            action: isLimit ? SnackBarAction(label: 'Upgrade', onPressed: () {}) : null,
           ),
         );
       }
@@ -74,22 +79,13 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F8FC);
-    final surfaceColor = isDark ? const Color(0xFF1A1A1A) : Colors.white;
-    final textMain = isDark ? Colors.white : const Color(0xFF120D1B);
-    final textSub = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
 
     final historyAsync = ref.watch(studyMaterialHistoryProvider);
 
     return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: bgColor,
-        elevation: 0,
-        title: Text('Study Set Generator', style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, color: textMain)),
-        iconTheme: IconThemeData(color: textMain),
-      ),
+      appBar: AppBar(title: const Text('Study Set Generator')),
       body: SafeArea(
         child: Column(
           children: [
@@ -100,36 +96,36 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Banner
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF10B981), Color(0xFF059669)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
+                    AppCard(
+                      radius: AppRadius.control,
                       child: Row(
                         children: [
-                          const Icon(Icons.menu_book_rounded, color: Colors.white, size: 32),
+                          Icon(Icons.menu_book_rounded, color: p.accentText, size: 32),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('AI Study Set', style: GoogleFonts.plusJakartaSans(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
-                                Text('Get Summary + Flashcards + Quiz', style: GoogleFonts.plusJakartaSans(fontSize: 12, color: Colors.white70)),
+                                Text('AI Study Set', style: textTheme.titleSmall),
+                                Text('Get Summary + Flashcards + Quiz', style: textTheme.bodySmall),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(8),
+                              color: p.accent,
+                              borderRadius: BorderRadius.circular(AppRadius.pill),
                             ),
-                            child: Text('1 FREE/DAY', style: GoogleFonts.plusJakartaSans(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                            child: Text(
+                              '1 FREE/DAY',
+                              style: textTheme.labelSmall!.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: p.onAccent,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -137,24 +133,13 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                     const SizedBox(height: 24),
 
                     // Topic input
-                    Text('Topic', style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600, color: textMain)),
+                    Text('Topic', style: textTheme.titleSmall),
                     const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: surfaceColor,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
-                      ),
-                      child: TextField(
-                        controller: _topicCtrl,
-                        style: GoogleFonts.plusJakartaSans(color: textMain),
-                        decoration: InputDecoration(
-                          hintText: 'e.g. "Newton\'s Laws of Motion", "Photosynthesis", "French Revolution"',
-                          hintStyle: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 13),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.all(16),
-                          suffixIcon: Icon(Icons.search_rounded, color: textSub),
-                        ),
+                    TextField(
+                      controller: _topicCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'e.g. "Newton\'s Laws of Motion", "Photosynthesis", "French Revolution"',
+                        suffixIcon: Icon(Icons.search_rounded, color: p.textMuted),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -164,75 +149,58 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                       onTap: () => setState(() => _showNotes = !_showNotes),
                       child: Row(
                         children: [
-                          Icon(_showNotes ? Icons.expand_less : Icons.expand_more, color: _primaryColor, size: 20),
+                          Icon(_showNotes ? Icons.expand_less : Icons.expand_more, color: p.accentText, size: 20),
                           const SizedBox(width: 4),
-                          Text(
-                            _showNotes ? 'Hide study notes' : 'Add your study notes (optional)',
-                            style: GoogleFonts.plusJakartaSans(color: _primaryColor, fontWeight: FontWeight.w600, fontSize: 13),
+                          Expanded(
+                            child: Text(
+                              _showNotes ? 'Hide study notes' : 'Add your study notes (optional)',
+                              style: textTheme.labelLarge!.copyWith(color: p.accentText),
+                            ),
                           ),
                         ],
                       ),
                     ),
                     if (_showNotes) ...[
                       const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: surfaceColor,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
-                        ),
-                        child: TextField(
-                          controller: _notesCtrl,
-                          maxLines: 8,
-                          style: GoogleFonts.plusJakartaSans(fontSize: 13, color: textMain),
-                          decoration: InputDecoration(
-                            hintText: 'Paste your notes here for more targeted content...',
-                            hintStyle: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 12),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.all(16),
-                          ),
+                      TextField(
+                        controller: _notesCtrl,
+                        maxLines: 8,
+                        style: textTheme.bodyMedium,
+                        decoration: const InputDecoration(
+                          hintText: 'Paste your notes here for more targeted content...',
                         ),
                       ),
                     ],
                     const SizedBox(height: 24),
 
                     // Recent history
-                    Text('Recent Study Sets', style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600, color: textMain)),
+                    Text('Recent Study Sets', style: textTheme.titleSmall),
                     const SizedBox(height: 12),
                     historyAsync.when(
                       data: (history) {
                         if (history.isEmpty) {
-                          return Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: surfaceColor,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
-                            ),
+                          return AppCard(
+                            radius: AppRadius.control,
                             child: Center(
-                              child: Text('No study sets yet', style: GoogleFonts.plusJakartaSans(color: textSub)),
+                              child: Text('No study sets yet', style: textTheme.bodyMedium!.copyWith(color: p.textMuted)),
                             ),
                           );
                         }
                         return Column(
-                          children: history.take(5).map((m) => GestureDetector(
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StudyMaterialScreen(material: m))),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 8),
+                          children: history.take(5).map((m) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: AppCard(
+                              radius: AppRadius.control,
                               padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: surfaceColor,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
-                              ),
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StudyMaterialScreen(material: m))),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.menu_book_outlined, color: Color(0xFF10B981), size: 20),
+                                  Icon(Icons.menu_book_outlined, color: p.accentText, size: 20),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: Text(m.topic, style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600, color: textMain, fontSize: 13)),
+                                    child: Text(m.topic, style: textTheme.titleSmall),
                                   ),
-                                  Icon(Icons.chevron_right, color: textSub, size: 18),
+                                  Icon(Icons.chevron_right, color: p.textMuted, size: 18),
                                 ],
                               ),
                             ),
@@ -240,9 +208,9 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                         );
                       },
                       loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (_, __) => const SizedBox(),
+                      error: (_, _) => const SizedBox(),
                     ),
-                    const SizedBox(height: 80),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
@@ -250,27 +218,11 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
 
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _isGenerating ? null : _generate,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    disabledBackgroundColor: const Color(0xFF10B981).withOpacity(0.3),
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  child: _isGenerating
-                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Text('Generate Study Set', style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                          ],
-                        ),
-                ),
+              child: AppButton(
+                label: 'Generate Study Set',
+                icon: Icons.auto_awesome,
+                loading: _isGenerating,
+                onPressed: _generate,
               ),
             ),
           ],

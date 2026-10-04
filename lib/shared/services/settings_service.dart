@@ -1,62 +1,52 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService extends ChangeNotifier {
   static final SettingsService _instance = SettingsService._internal();
   factory SettingsService() => _instance;
   SettingsService._internal();
 
-  ThemeMode _themeMode = ThemeMode.system;
-  ThemeMode get themeMode => _themeMode;
+  static const _themeKey = 'theme_mode';
 
-  String _language = 'English';
-  String get language => _language;
+  /// Dark is the default look; the choice is remembered across launches.
+  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode get themeMode => _themeMode;
 
   bool _notificationsEnabled = true;
   bool get notificationsEnabled => _notificationsEnabled;
 
-  bool _soundEnabled = true;
-  bool get soundEnabled => _soundEnabled;
+  /// This is a process-wide singleton, so a provider tearing down its scope
+  /// must not dispose it for everyone else — hence no `super.dispose()`.
+  @override
+  // ignore: must_call_super
+  void dispose() {}
 
   Future<void> init() async {
-    // Load saved settings
+    final prefs = await SharedPreferences.getInstance();
+    _themeMode = _parseThemeMode(prefs.getString(_themeKey));
   }
 
-  void toggleTheme() {
-    _themeMode = _themeMode == ThemeMode.light
-        ? ThemeMode.dark
-        : ThemeMode.light;
-    notifyListeners();
-  }
-
-  void toggleDarkMode(bool isDark) {
-    _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
-    notifyListeners();
+  static ThemeMode _parseThemeMode(String? value) {
+    switch (value) {
+      case 'light':
+        return ThemeMode.light;
+      case 'system':
+        return ThemeMode.system;
+      default:
+        return ThemeMode.dark;
+    }
   }
 
   void setThemeMode(ThemeMode mode) {
-    if (_themeMode != mode) {
-      _themeMode = mode;
-      notifyListeners();
-    }
-  }
-
-  void setLanguage(String lang) {
-    if (_language != lang) {
-      _language = lang;
-      notifyListeners();
-    }
+    if (_themeMode == mode) return;
+    _themeMode = mode;
+    notifyListeners();
+    SharedPreferences.getInstance().then((prefs) => prefs.setString(_themeKey, mode.name));
   }
 
   void toggleNotifications(bool enabled) {
     if (_notificationsEnabled != enabled) {
       _notificationsEnabled = enabled;
-      notifyListeners();
-    }
-  }
-
-  void toggleSound(bool enabled) {
-    if (_soundEnabled != enabled) {
-      _soundEnabled = enabled;
       notifyListeners();
     }
   }

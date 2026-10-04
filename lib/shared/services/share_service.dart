@@ -71,6 +71,19 @@ $description
     await Share.share(text, subject: 'I unlocked an achievement on Quirzy!');
   }
 
+  /// Shares a practice streak.
+  static Future<void> shareStreak({required int days}) async {
+    final text =
+        '''
+🔥 $days-day practice streak on Quirzy!
+
+Can you beat it? #Quirzy #Streak
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'My $days-day Quirzy streak'),
+    );
+  }
+
   /// Shares a practice question as a challenge, without revealing the
   /// answer.
   static Future<void> shareQuestion({

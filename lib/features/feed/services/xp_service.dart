@@ -78,3 +78,8 @@ class XpService {
 final xpServiceProvider = Provider<XpService>((ref) {
   return XpService();
 });
+
+/// Lifetime XP, refreshed when XP is earned.
+final xpTotalProvider = FutureProvider<int>((ref) {
+  return ref.watch(xpServiceProvider).getXPTotal();
+});

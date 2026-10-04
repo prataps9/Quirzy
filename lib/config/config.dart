@@ -12,4 +12,3 @@ export 'app_config.dart';
 export 'app_constants.dart';
 export 'app_routes.dart';
 export 'api_config.dart';
-export 'theme_config.dart';

@@ -24,8 +24,7 @@ class AppConstants {
   static const String languageKey = 'app_language';
   
   // Asset Paths
-  static const String logoPath = 'assets/icon/quirzy_translucent_morph.png';
-  static const String splashPath = 'assets/splash/';
+  static const String logoPath = 'assets/icon/quirzy_icon.png';
   static const String iconsPath = 'assets/icon/';
   
   // Default Values

@@ -1,6 +1,6 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+
+import '../../shared/theme/app_palette.dart';
 
 class SuccessScreen extends StatefulWidget {
   final VoidCallback onComplete;
@@ -34,25 +34,25 @@ class _SuccessScreenState extends State<SuccessScreen>
 
     _scaleController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 250),
     );
     _scaleAnimation = CurvedAnimation(
       parent: _scaleController,
-      curve: Curves.elasticOut,
+      curve: Curves.easeOutCubic,
     );
 
     _checkController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 200),
     );
     _checkAnimation = CurvedAnimation(
       parent: _checkController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOut,
     );
 
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 250),
     );
     _fadeAnimation = CurvedAnimation(
       parent: _fadeController,
@@ -90,12 +90,12 @@ class _SuccessScreenState extends State<SuccessScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
     final size = MediaQuery.of(context).size;
-    final primaryColor = theme.colorScheme.primary;
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: p.bg,
       body: SafeArea(
         child: Center(
           child: Column(
@@ -108,15 +108,14 @@ class _SuccessScreenState extends State<SuccessScreen>
                   height: 120,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: primaryColor.withOpacity(0.1),
-                    border: Border.all(color: primaryColor, width: 3),
+                    color: p.accent,
                   ),
                   child: ScaleTransition(
                     scale: _checkAnimation,
                     child: Icon(
                       Icons.check_rounded,
                       size: 60,
-                      color: primaryColor,
+                      color: p.onAccent,
                     ),
                   ),
                 ),
@@ -128,19 +127,16 @@ class _SuccessScreenState extends State<SuccessScreen>
                   children: [
                     Text(
                       widget.message,
-                      style: GoogleFonts.poppins(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
-                      ),
+                      textAlign: TextAlign.center,
+                      style: textTheme.headlineLarge!.copyWith(color: p.text),
                     ),
                     if (widget.subtitle != null) ...[
                       SizedBox(height: size.height * 0.01),
                       Text(
                         widget.subtitle!,
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          color: theme.colorScheme.onSurfaceVariant,
+                        textAlign: TextAlign.center,
+                        style: textTheme.bodyLarge!.copyWith(
+                          color: p.textMuted,
                         ),
                       ),
                     ],
@@ -155,7 +151,7 @@ class _SuccessScreenState extends State<SuccessScreen>
                   height: 30,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    color: primaryColor.withOpacity(0.6),
+                    color: p.accentText,
                   ),
                 ),
               ),

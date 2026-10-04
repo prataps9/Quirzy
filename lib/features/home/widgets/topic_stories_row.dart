@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../../../shared/providers/providers.dart';
+import '../../../shared/theme/app_palette.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 
@@ -11,16 +11,7 @@ import '../../feed/providers/feed_providers.dart';
 /// that still have questions you haven't seen; tapping one opens it in
 /// the Practice feed.
 class TopicStoriesRow extends ConsumerWidget {
-  final bool isDark;
-  final Color primaryColor;
-  final Color textMain;
-
-  const TopicStoriesRow({
-    super.key,
-    required this.isDark,
-    required this.primaryColor,
-    required this.textMain,
-  });
+  const TopicStoriesRow({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -38,9 +29,6 @@ class TopicStoriesRow extends ConsumerWidget {
           final story = stories[index];
           return _TopicStory(
             story: story,
-            isDark: isDark,
-            primaryColor: primaryColor,
-            textMain: textMain,
             onTap: () {
               HapticFeedback.selectionClick();
               ref.read(feedControllerProvider.notifier).switchLane(
@@ -61,26 +49,17 @@ class TopicStoriesRow extends ConsumerWidget {
 
 class _TopicStory extends StatelessWidget {
   final TopicStory story;
-  final bool isDark;
-  final Color primaryColor;
-  final Color textMain;
   final VoidCallback onTap;
 
-  const _TopicStory({
-    required this.story,
-    required this.isDark,
-    required this.primaryColor,
-    required this.textMain,
-    required this.onTap,
-  });
+  const _TopicStory({required this.story, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
     final trimmed = story.topic.trim();
     final initial = trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
-    final ringColor = story.hasUnseen
-        ? primaryColor
-        : (isDark ? Colors.white24 : Colors.black12);
+    final ringColor = story.hasUnseen ? p.accentText : p.border;
 
     return Semantics(
       button: true,
@@ -104,16 +83,9 @@ class _TopicStory extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: primaryColor.withOpacity(isDark ? 0.22 : 0.10),
+                    color: p.surfaceHigh,
                   ),
-                  child: Text(
-                    initial,
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: primaryColor,
-                    ),
-                  ),
+                  child: Text(initial, style: text.headlineSmall!.copyWith(color: p.accentText)),
                 ),
               ),
               const SizedBox(height: 6),
@@ -122,10 +94,8 @@ class _TopicStory extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 11,
-                  fontWeight: story.hasUnseen ? FontWeight.w700 : FontWeight.w500,
-                  color: textMain,
+                style: text.labelSmall!.copyWith(
+                  fontWeight: story.hasUnseen ? FontWeight.w800 : FontWeight.w500,
                 ),
               ),
             ],

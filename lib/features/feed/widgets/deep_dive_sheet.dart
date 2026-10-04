@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../shared/theme/practice_theme.dart';
+import '../../../shared/theme/app_palette.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
 
-/// Swipe-left drawer (PRD §F4): the answer's explanation plus a short list
-/// of similar questions from the same topic. Presented as a tall modal
-/// sheet rather than a separate route — simplest fit for this app's
-/// existing modal-sheet idiom, still swipe-to-dismiss and back-button safe.
+/// The solution drawer: the correct answer, its explanation, and a short
+/// list of similar questions from the same topic.
 class DeepDiveSheet extends ConsumerWidget {
   final PracticeQuestion question;
   final int cardIndex;
@@ -20,15 +17,14 @@ class DeepDiveSheet extends ConsumerWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (_) => DeepDiveSheet(question: question, cardIndex: cardIndex),
     );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
     final controller = ref.read(feedControllerProvider.notifier);
     final similar = controller.similarTo(question);
 
@@ -38,134 +34,91 @@ class DeepDiveSheet extends ConsumerWidget {
       maxChildSize: 0.92,
       expand: false,
       builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: isDark ? PracticeTheme.surfaceDark : PracticeTheme.surfaceLight,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: ListView(
-            controller: scrollController,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white24 : Colors.black12,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Solution',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: isDark ? Colors.white : Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                question.questionText,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
+        return ListView(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
-                  color: PracticeTheme.success.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(14),
+                  color: p.border,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.check_circle_rounded, color: PracticeTheme.success, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        question.options[question.correctIndex],
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                      ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text('Solution', style: text.titleLarge),
+            const SizedBox(height: 12),
+            Text(question.questionText, style: text.bodyMedium!.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: p.successSoft,
+                borderRadius: BorderRadius.circular(AppRadius.control),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.check_circle_rounded, color: p.success, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      question.options[question.correctIndex],
+                      style: text.bodyMedium!.copyWith(fontWeight: FontWeight.w700),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                question.explanation.trim().isEmpty
-                    ? 'No solution notes for this question yet.'
-                    : question.explanation,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 14,
-                  height: 1.6,
-                  color: isDark ? Colors.white70 : Colors.black87,
-                ),
-              ),
-              if (similar.isNotEmpty) ...[
-                const SizedBox(height: 26),
-                Text(
-                  'Similar questions',
-                  style: GoogleFonts.plusJakartaSans(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white : Colors.black87,
                   ),
-                ),
-                const SizedBox(height: 10),
-                ...similar.map(
-                  (q) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () {
-                          controller.insertNext(cardIndex, q);
-                          Navigator.of(context).pop();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
-                            borderRadius: BorderRadius.circular(14),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              question.explanation.trim().isEmpty
+                  ? 'No solution notes for this question yet.'
+                  : question.explanation,
+              style: text.bodyMedium!.copyWith(height: 1.6, color: p.textMuted),
+            ),
+            if (similar.isNotEmpty) ...[
+              const SizedBox(height: 26),
+              Text('Similar questions', style: text.titleMedium),
+              const SizedBox(height: 10),
+              for (final q in similar)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.control),
+                    onTap: () {
+                      controller.insertNext(cardIndex, q);
+                      Navigator.of(context).pop();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: p.border),
+                        borderRadius: BorderRadius.circular(AppRadius.control),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              q.questionText,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodyMedium,
+                            ),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  q.questionText,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: isDark ? Colors.white : Colors.black87,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Icon(Icons.chevron_right_rounded, size: 18, color: PracticeTheme.primary),
-                            ],
-                          ),
-                        ),
+                          const SizedBox(width: 8),
+                          Icon(Icons.chevron_right_rounded, size: 20, color: p.accentText),
+                        ],
                       ),
                     ),
                   ),
                 ),
-              ],
             ],
-          ),
+          ],
         );
       },
     );

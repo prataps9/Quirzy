@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 import '../../l10n/app_localizations.dart';
 
 /// AdService - Manages ad display and free quiz limits
@@ -57,90 +59,7 @@ class AdService {
   void incrementFlashcardCount() {}
 }
 
-/// DailyRewardSheet - Shows daily login reward
-class DailyRewardSheet extends StatelessWidget {
-  final int day;
-  final int xpReward;
-  final VoidCallback onClaim;
-
-  const DailyRewardSheet({
-    super.key,
-    required this.day,
-    required this.xpReward,
-    required this.onClaim,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '🎉 Day $day Streak!',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'You earned $xpReward XP',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 16,
-              color: isDark ? Colors.white70 : Colors.black54,
-            ),
-          ),
-          const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                onClaim();
-                Navigator.pop(context);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF5B13EC),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                'Claim Reward',
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-}
-
-/// QuizGenerationLoadingScreen - Shows while quiz is being generated
+/// Shown while a topic is being generated.
 class QuizGenerationLoadingScreen extends StatelessWidget {
   final String? title;
   final String? subtitle;
@@ -149,61 +68,38 @@ class QuizGenerationLoadingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F0F0F) : Colors.white,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 60,
-              height: 60,
-              child: CircularProgressIndicator(
-                color: Color(0xFF5B13EC),
-                strokeWidth: 3,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 56,
+                height: 56,
+                child: CircularProgressIndicator(strokeWidth: 4),
               ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              title ?? 'Generating...',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : Colors.black,
+              const SizedBox(height: 28),
+              Text(title ?? 'Generating...', textAlign: TextAlign.center, style: text.headlineSmall),
+              const SizedBox(height: 8),
+              Text(
+                subtitle ?? 'AI is crafting questions for you',
+                textAlign: TextAlign.center,
+                style: text.bodyMedium!.copyWith(color: p.textMuted),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              subtitle ?? 'AI is crafting questions for you',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 14,
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// StudyInputScreen - For deep study input
-class StudyInputScreen extends StatelessWidget {
-  const StudyInputScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Study Mode')),
-      body: const Center(child: Text('Study Input Screen - Coming Soon')),
-    );
-  }
-}
-
+/// Bottom sheet to pick how many questions and how hard before generating.
 class QuizConfigSheet extends StatefulWidget {
   final String topic;
   final Function(int count, String difficulty) onGenerate;
@@ -224,16 +120,14 @@ class _QuizConfigSheetState extends State<QuizConfigSheet> {
   final List<String> _difficulties = ['Easy', 'Medium', 'Hard'];
   final List<int> _counts = [5, 10, 15, 20];
 
-  static const primaryColor = Color(0xFF5B13EC);
-
-  String _getLocalizedDifficulty(BuildContext context, String difficulty) {
+  String _localizedDifficulty(AppLocalizations l, String difficulty) {
     switch (difficulty) {
       case 'Easy':
-        return AppLocalizations.of(context)!.difficultyEasy;
+        return l.difficultyEasy;
       case 'Medium':
-        return AppLocalizations.of(context)!.difficultyMedium;
+        return l.difficultyMedium;
       case 'Hard':
-        return AppLocalizations.of(context)!.difficultyHard;
+        return l.difficultyHard;
       default:
         return difficulty;
     }
@@ -241,186 +135,65 @@ class _QuizConfigSheetState extends State<QuizConfigSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final localizations = AppLocalizations.of(context)!;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = isDark ? const Color(0xFF0F0F0F) : Colors.white;
-    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
+    final l = AppLocalizations.of(context)!;
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white24 : Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(24, 12, 24, 16 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: p.border, borderRadius: BorderRadius.circular(AppRadius.pill)),
               ),
             ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            localizations.configureQuizTitle,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${localizations.topicLabel}: ${widget.topic}',
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 14,
-              color: isDark ? Colors.white60 : Colors.black54,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Difficulty Selector
-          Text(
-            localizations.difficultyLabel,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<String>(
-              segments: _difficulties.map((diff) {
-                return ButtonSegment<String>(
-                  value: diff,
-                  label: Text(
-                    _getLocalizedDifficulty(context, diff),
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                );
-              }).toList(),
-              selected: {_difficulty},
-              onSelectionChanged: (Set<String> newSelection) {
-                setState(() {
-                  _difficulty = newSelection.first;
-                });
-              },
-              style: ButtonStyle(
-                backgroundColor: WidgetStateProperty.resolveWith<Color>((
-                  Set<WidgetState> states,
-                ) {
-                  if (states.contains(WidgetState.selected)) {
-                    return primaryColor;
-                  }
-                  return isDark ? Colors.white10 : Colors.grey.shade100;
-                }),
-                foregroundColor: WidgetStateProperty.resolveWith<Color>((
-                  Set<WidgetState> states,
-                ) {
-                  if (states.contains(WidgetState.selected)) {
-                    return Colors.white;
-                  }
-                  return textColor;
-                }),
+            const SizedBox(height: 20),
+            Text(l.configureQuizTitle, style: text.headlineSmall),
+            const SizedBox(height: 6),
+            Text('${l.topicLabel}: ${widget.topic}', style: text.bodyMedium!.copyWith(color: p.textMuted)),
+            const SizedBox(height: 24),
+            Text(l.difficultyLabel, style: text.titleSmall),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final d in _difficulties)
+                    ButtonSegment<String>(value: d, label: Text(_localizedDifficulty(l, d))),
+                ],
+                selected: {_difficulty},
+                onSelectionChanged: (selection) => setState(() => _difficulty = selection.first),
               ),
-              showSelectedIcon: false,
             ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Question Count Selector
-          Text(
-            localizations.questionCountLabel,
-            style: GoogleFonts.plusJakartaSans(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: textColor,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: SegmentedButton<int>(
-              segments: _counts.map((count) {
-                return ButtonSegment<int>(
-                  value: count,
-                  label: Text(
-                    count.toString(),
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                );
-              }).toList(),
-              selected: {_questionCount},
-              onSelectionChanged: (Set<int> newSelection) {
-                setState(() {
-                  _questionCount = newSelection.first;
-                });
-              },
-              style: ButtonStyle(
-                backgroundColor: WidgetStateProperty.resolveWith<Color>((
-                  Set<WidgetState> states,
-                ) {
-                  if (states.contains(WidgetState.selected)) {
-                    return primaryColor;
-                  }
-                  return isDark ? Colors.white10 : Colors.grey.shade100;
-                }),
-                foregroundColor: WidgetStateProperty.resolveWith<Color>((
-                  Set<WidgetState> states,
-                ) {
-                  if (states.contains(WidgetState.selected)) {
-                    return Colors.white;
-                  }
-                  return textColor;
-                }),
+            const SizedBox(height: 20),
+            Text(l.questionCountLabel, style: text.titleSmall),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<int>(
+                showSelectedIcon: false,
+                segments: [
+                  for (final c in _counts) ButtonSegment<int>(value: c, label: Text('$c')),
+                ],
+                selected: {_questionCount},
+                onSelectionChanged: (selection) => setState(() => _questionCount = selection.first),
               ),
-              showSelectedIcon: false,
             ),
-          ),
-
-          const SizedBox(height: 40),
-
-          // Generate Button
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
+            const SizedBox(height: 28),
+            AppButton(
+              label: l.startGeneratingButton,
+              icon: Icons.auto_awesome_rounded,
               onPressed: () => widget.onGenerate(_questionCount, _difficulty),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                elevation: 4,
-              ),
-              child: Text(
-                localizations.startGeneratingButton,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
             ),
-          ),
-          const SizedBox(height: 16),
-        ],
+          ],
+        ),
       ),
     );
   }

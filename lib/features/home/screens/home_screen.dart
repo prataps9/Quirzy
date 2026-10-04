@@ -1,32 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:avatar_glow/avatar_glow.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../../l10n/app_localizations.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import '../../../shared/providers/exam_provider.dart';
+import '../../../shared/providers/providers.dart';
+import '../../../shared/services/connectivity_service.dart';
+import '../../../shared/services/smart_notification_service.dart';
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 import '../../content/providers/content_providers.dart';
-import '../../content/screens/study_notes_screen.dart';
 import '../../content/screens/add_questions_screen.dart';
 import '../../content/screens/study_material_entry_screen.dart';
+import '../../content/screens/study_notes_screen.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/practice_content_service.dart';
-import '../../../shared/providers/providers.dart';
-import '../../../shared/widgets/quirzy_mascot.dart';
-import '../widgets/home_widgets.dart';
-import '../../explore/screens/explore_screen.dart';
-import '../widgets/home_cards.dart';
-import '../widgets/home_sections.dart';
-import '../widgets/topic_stories_row.dart';
-import '../providers/home_stats_provider.dart';
-import '../../../shared/providers/exam_provider.dart';
+import '../../feed/services/streak_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../../onboarding/screens/exam_selection_screen.dart';
-import '../../../shared/services/smart_notification_service.dart';
-import '../../../shared/services/connectivity_service.dart';
+import '../../subscription/screens/subscription_screen.dart';
+import '../providers/home_stats_provider.dart';
+import '../widgets/home_widgets.dart';
+import '../widgets/topic_stories_row.dart';
 
+/// Home: one clear job — add something to practice. Everything else (your
+/// topics, quick practice for your exam, other ways to add content) hangs
+/// off that.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -34,19 +34,13 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen>
-    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAliveClientMixin {
   final TextEditingController _topicController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
-  bool _isGenerating = false;
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   String _userName = 'Practice Champ';
   String? _photoUrl;
 
-  // Cached instances for performance
-  SharedPreferences? _prefs;
-
-  // Speech to Text
   late stt.SpeechToText _speech;
   bool _isListening = false;
   String _lastWords = '';
@@ -54,17 +48,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   bool get wantKeepAlive => true;
 
-  // Static colors
-  static const primaryColor = Color(0xFF5B13EC);
-
   @override
   void initState() {
     super.initState();
     _loadUserData();
-    _initAnimations();
     _speech = stt.SpeechToText();
-    _initAdService();
     _onAppOpen();
+  }
+
+  @override
+  void dispose() {
+    _topicController.dispose();
+    _inputFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _onAppOpen() async {
@@ -78,12 +74,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final revisionService = ref.read(feedRevisionServiceProvider);
 
     // Streak protection at 9 PM if not studied today (real feed activity).
-    final prefs = await SharedPreferences.getInstance();
-    final streak = prefs.getInt('daily_streak') ?? 0;
-    final todayAnswered = await statsService.getTodayAnsweredCount();
+    final streak = await ref.read(streakServiceProvider).getStreak();
     await svc.scheduleStreakProtection(
-      currentStreak: streak,
-      studiedToday: todayAnswered > 0,
+      currentStreak: streak.current,
+      studiedToday: streak.practisedToday,
     );
 
     // Revision due (morning) — real Revision Vault due count.
@@ -96,14 +90,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await svc.scheduleWeeklyDigest(
       questionsThisWeek: questionsThisWeek,
       flashcardsReviewed: 0,
-      bestStreak: streak,
+      bestStreak: streak.best,
     );
-  }
-
-  Future<void> _initAdService() async {
-    // AdService from stubs doesn't have initialize yet, stubing it out or removing if not in stub
-    // await AdService().initialize();
-    if (mounted) setState(() {});
   }
 
   Future<void> _loadUserData() async {
@@ -117,254 +105,128 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  void _initAnimations() {
-    // Triggers daily reward check after a slight delay for better UX
-    Future.delayed(const Duration(seconds: 1), _checkDailyReward);
-  }
-
-  Future<void> _checkDailyReward() async {
-    if (!mounted) return;
-
-    // Use cached prefs for better performance
-    _prefs ??= await SharedPreferences.getInstance();
-    final prefs = _prefs!;
-
-    final lastDateStr = prefs.getString('last_daily_reward_date');
-    final todayStr = DateTime.now().toIso8601String().split('T').first;
-
-    if (lastDateStr != todayStr) {
-      final currentStreak = (prefs.getInt('daily_streak') ?? 0) + 1;
-
-      if (!mounted) return;
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => DailyRewardSheet(
-          day: currentStreak,
-          xpReward: 50 + (currentStreak * 10), // Scaling reward
-          onClaim: () async {
-            await prefs.setString('last_daily_reward_date', todayStr);
-            await prefs.setInt('daily_streak', currentStreak);
-            // Here you would typically add XP to your user provider
-          },
-        ),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    // Proper cleanup to prevent memory leaks
-    _topicController.dispose();
-    _inputFocusNode.dispose();
-    super.dispose();
-  }
-
   // --- SPEECH RECOGNITION ---
 
   Future<void> _listen() async {
     final localizations = AppLocalizations.of(context)!;
-    if (!_isListening) {
-      bool available = await _speech.initialize(
-        onStatus: (val) {
-          if (val == 'done' || val == 'notListening') {
-            if (mounted && _isListening) {
-              setState(() => _isListening = false);
-              Navigator.pop(
-                context,
-              ); // Close dialog if listening stops naturally
-            }
-          }
-        },
-        onError: (val) => debugPrint('onError: $val'),
-      );
-
-      if (available) {
-        if (!mounted) return;
-        setState(() => _isListening = true);
-
-        // Show Google-style listening DIALOG (Centered)
-        showDialog(
-          context: context,
-          barrierDismissible: true,
-          builder: (context) {
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            return Dialog(
-              backgroundColor: isDark ? const Color(0xFF1E1730) : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              insetPadding: const EdgeInsets.all(20),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 40,
-                  horizontal: 24,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      localizations.listening,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : const Color(0xFF1E293B),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _lastWords.isEmpty
-                          ? localizations.sayYourTopic
-                          : _lastWords,
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.plusJakartaSans(
-                        fontSize: 16,
-                        color: isDark ? Colors.white70 : Colors.black54,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 48),
-                    AvatarGlow(
-                      animate: true,
-                      glowColor: const Color(0xFF4285F4), // Google Blue
-                      duration: const Duration(milliseconds: 2000),
-                      repeat: true,
-                      startDelay: const Duration(milliseconds: 100),
-                      child: GestureDetector(
-                        onTap: () {
-                          _speech.stop();
-                          Navigator.pop(context);
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(24),
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 10,
-                                offset: Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: ShaderMask(
-                            shaderCallback: (Rect bounds) {
-                              return const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xFF4285F4), // Blue
-                                  Color(0xFFEA4335), // Red
-                                  Color(0xFFFBBC05), // Yellow
-                                  Color(0xFF34A853), // Green
-                                ],
-                              ).createShader(bounds);
-                            },
-                            child: const Icon(
-                              Icons.mic_rounded,
-                              color: Colors.white,
-                              size: 48,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ).then((_) {
-          if (_isListening) {
-            _speech.stop();
-            setState(() => _isListening = false);
-          }
-        });
-
-        _speech.listen(
-          onResult: (val) {
-            setState(() {
-              _topicController.text = val.recognizedWords;
-              _lastWords = val.recognizedWords;
-              // Keep cursor at end
-              _topicController.selection = TextSelection.fromPosition(
-                TextPosition(offset: _topicController.text.length),
-              );
-            });
-          },
-        );
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(localizations.speechNotAvailable)),
-          );
-        }
-      }
-    } else {
+    if (_isListening) {
       setState(() => _isListening = false);
       _speech.stop();
+      return;
     }
+
+    final available = await _speech.initialize(
+      onStatus: (val) {
+        if (val == 'done' || val == 'notListening') {
+          if (mounted && _isListening) {
+            setState(() => _isListening = false);
+            Navigator.pop(context); // Close dialog if listening stops naturally
+          }
+        }
+      },
+      onError: (val) => debugPrint('onError: $val'),
+    );
+
+    if (!available) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localizations.speechNotAvailable)));
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isListening = true);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final p = context.palette;
+        final text = Theme.of(context).textTheme;
+        return Dialog(
+          insetPadding: const EdgeInsets.all(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(localizations.listening, style: text.headlineSmall),
+                const SizedBox(height: 8),
+                Text(
+                  _lastWords.isEmpty ? localizations.sayYourTopic : _lastWords,
+                  textAlign: TextAlign.center,
+                  style: text.bodyLarge!.copyWith(color: p.textMuted),
+                ),
+                const SizedBox(height: 32),
+                GestureDetector(
+                  onTap: () {
+                    _speech.stop();
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
+                    child: Icon(Icons.mic_rounded, color: p.onAccent, size: 44),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text('Tap to stop', style: text.bodySmall),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      if (_isListening) {
+        _speech.stop();
+        setState(() => _isListening = false);
+      }
+    });
+
+    _speech.listen(
+      onResult: (val) {
+        setState(() {
+          _topicController.text = val.recognizedWords;
+          _lastWords = val.recognizedWords;
+          _topicController.selection = TextSelection.fromPosition(
+            TextPosition(offset: _topicController.text.length),
+          );
+        });
+      },
+    );
   }
 
-  // NOTE: Removed _showListeningSheet as it is replaced by dialog logic inside _listen
-
-  // --- QUIZ GENERATION FLOW ---
+  // --- TOPIC GENERATION FLOW ---
 
   void _handleGenerate() {
     final localizations = AppLocalizations.of(context)!;
     final topic = _topicController.text.trim();
     if (topic.isEmpty) {
       HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            localizations.pleaseEnterTopic,
-            style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w600),
-          ),
-          backgroundColor: primaryColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localizations.pleaseEnterTopic)));
       return;
     }
-
-    HapticFeedback.lightImpact();
-
-    // Directly show configuration dialog (Ad check moved to confirmation)
-    _showQuizConfigurationDialog(topic);
+    _showConfigSheet(topic);
   }
 
-  void _showQuizConfigurationDialog(String topic) {
+  void _showConfigSheet(String topic) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
       builder: (context) => QuizConfigSheet(
         topic: topic,
         onGenerate: (count, difficulty) {
           Navigator.pop(context); // Close sheet first
 
-          // Trigger Ad Check Here
           if (!AdService().isLimitReached()) {
             AdService().incrementQuizCount();
             _startGeneration(topic, count, difficulty);
           } else {
             AdService().showRewardedAd(
               onRewardEarned: () {
-                if (mounted) {
-                  _startGeneration(topic, count, difficulty);
-                }
+                if (mounted) _startGeneration(topic, count, difficulty);
               },
               onAdFailed: () {
-                // Fallback
-                if (mounted) {
-                  _startGeneration(topic, count, difficulty);
-                }
+                if (mounted) _startGeneration(topic, count, difficulty);
               },
             );
           }
@@ -373,11 +235,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Future<void> _startGeneration(
-    String topic,
-    int count,
-    String difficulty,
-  ) async {
+  Future<void> _startGeneration(String topic, int count, String difficulty) async {
     // Check daily topic-generation limit before generating
     final canGenerate = await ref.read(canGenerateTopicProvider.future);
 
@@ -386,16 +244,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Daily Limit Reached'),
+            title: const Text('Daily limit reached'),
             content: const Text(
               'You\'ve already generated 1 topic today. Come back tomorrow for your next free topic, '
               'or upgrade to Pro for unlimited topics!',
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
             ],
           ),
         );
@@ -407,17 +262,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!isOnline) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You\'re offline — connect to the internet to add a new topic.'),
-            backgroundColor: Colors.red,
-          ),
+          const SnackBar(content: Text('You\'re offline — connect to the internet to add a new topic.')),
         );
       }
       return;
     }
     if (!mounted) return;
 
-    // Navigate to the beautiful Gemini-like loading screen
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -430,7 +281,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     try {
       final contentService = ref.read(contentServiceProvider);
-      // Pass the count and difficulty to the service
       final result = await contentService.generateTopicContent(
         topic: topic,
         questionCount: count,
@@ -440,15 +290,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // Record daily generation usage after successful generation
       final quizId = result['quizId']?.toString() ?? result['id']?.toString() ?? '';
       final generationLimitService = ref.read(generationLimitServiceProvider);
-      await generationLimitService.recordUsage(
-        topicId: quizId,
-        topic: topic,
-      );
+      await generationLimitService.recordUsage(topicId: quizId, topic: topic);
 
       final quizTitle = result['title']?.toString() ?? topic;
-      final questions = List<Map<String, dynamic>>.from(
-        result['questions'] ?? [],
-      );
+      final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
 
       // Add the new questions straight to the practice feed's pool and
       // jump there so they're immediately practicable.
@@ -460,380 +305,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       await ref.read(feedControllerProvider.notifier).switchToTopic(quizTitle);
 
       if (mounted) {
-        // Remove the loading screen
-        Navigator.pop(context);
+        Navigator.pop(context); // Remove the loading screen
         _topicController.clear();
         ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Added ${questions.length} questions on "$quizTitle" to your feed'),
-          ),
+          SnackBar(content: Text('Added ${questions.length} questions on "$quizTitle" to your feed')),
         );
       }
     } catch (e) {
       if (mounted) {
-        // Dismiss loading screen on error
-        Navigator.pop(context);
-
-        setState(
-          () => _isGenerating = false,
-        ); // Ensure state is reset just in case
-
+        Navigator.pop(context); // Dismiss loading screen on error
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${AppLocalizations.of(context)!.failedToGenerate}$e',
-            ),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('${AppLocalizations.of(context)!.failedToGenerate}$e')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isGenerating = false);
     }
   }
 
-  // --- UI BUILDING ---
+  // --- UI ---
 
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Theme-aware colors
-    final bgColor = isDark ? const Color(0xFF0F0F0F) : const Color(0xFFF9F8FC);
-    final surfaceColor = isDark ? const Color(0xFF1A1A1A) : Colors.white;
-    final textMain = isDark ? Colors.white : const Color(0xFF120D1B);
-    final textSub = isDark ? Colors.white70 : const Color(0xFF664C9A);
-
-    return Scaffold(
-      backgroundColor: bgColor,
-      body: Stack(
-        children: [
-          // Main Content
-          SafeArea(
-            bottom: true,
-            child:
-                CustomScrollView(
-                      slivers: [
-                        SliverToBoxAdapter(
-                          child: HomeAppBar(
-                            userName: _userName,
-                            photoUrl: _photoUrl,
-                            greeting: _getGreeting(),
-                            textMain: textMain,
-                            textSub: textSub,
-                            primaryColor: primaryColor,
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: TopicStoriesRow(
-                            isDark: isDark,
-                            primaryColor: primaryColor,
-                            textMain: textMain,
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: HomeHeroSection(
-                            isDark: isDark,
-                            surfaceColor: surfaceColor,
-                            textMain: textMain,
-                            textSub: textSub,
-                            primaryColor: primaryColor,
-                            greeting: _getGreeting(),
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: QuickActions(
-                            isDark: isDark,
-                            surfaceColor: surfaceColor,
-                            textSub: textSub,
-                            onAction: _handleQuickAction,
-                          ),
-                        ),
-                        // Live Stats Banner
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 8,
-                            ),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    primaryColor.withOpacity(0.1),
-                                    const Color(0xFF8B5CF6).withOpacity(0.1),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: primaryColor.withOpacity(0.2),
-                                ),
-                              ),
-                              child: Consumer(
-                                builder: (context, statsRef, _) {
-                                  final statsAsync = statsRef.watch(homeStatsProvider);
-                                  return statsAsync.when(
-                                    data: (stats) => Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                      children: [
-                                        _buildMiniStat(
-                                          Icons.local_fire_department_rounded,
-                                          '${stats.streak}',
-                                          'Streak',
-                                          const Color(0xFFF59E0B),
-                                          isDark,
-                                        ),
-                                        Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.black12),
-                                        _buildMiniStat(
-                                          Icons.bolt_rounded,
-                                          '${stats.xpToday}',
-                                          'XP Today',
-                                          const Color(0xFF10B981),
-                                          isDark,
-                                        ),
-                                        Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.black12),
-                                        _buildMiniStat(
-                                          Icons.layers_rounded,
-                                          '${stats.quizzesToday}',
-                                          'Topics',
-                                          primaryColor,
-                                          isDark,
-                                        ),
-                                      ],
-                                    ),
-                                    loading: () => const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-                                    error: (_, __) => Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                      children: [
-                                        _buildMiniStat(Icons.local_fire_department_rounded, '0', 'Streak', const Color(0xFFF59E0B), isDark),
-                                        Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.black12),
-                                        _buildMiniStat(Icons.bolt_rounded, '0', 'XP Today', const Color(0xFF10B981), isDark),
-                                        Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.black12),
-                                        _buildMiniStat(Icons.layers_rounded, '0', 'Topics', primaryColor, isDark),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: TopicInputSection(
-                            isDark: isDark,
-                            surfaceColor: surfaceColor,
-                            textMain: textMain,
-                            textSub: textSub,
-                            controller: _topicController,
-                            focusNode: _inputFocusNode,
-                            onMicTap: _listen,
-                            primaryColor: primaryColor,
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: GenerateQuizButton(
-                            isGenerating: _isGenerating,
-                            onTap: _handleGenerate,
-                            primaryColor: primaryColor,
-                          ),
-                        ),
-                        // Exam Context Banner + Quick Start
-                        SliverToBoxAdapter(
-                          child: Consumer(
-                            builder: (context, examRef, _) {
-                              final selectedExam = examRef.watch(examProvider);
-                              final examTopics = _getExamTopics(selectedExam);
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Exam banner
-                                  if (selectedExam != null)
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-                                      child: GestureDetector(
-                                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExamSelectionScreen())),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          decoration: BoxDecoration(
-                                            gradient: const LinearGradient(
-                                              colors: [Color(0xFF5B13EC), Color(0xFF9333EA)],
-                                              begin: Alignment.centerLeft,
-                                              end: Alignment.centerRight,
-                                            ),
-                                            borderRadius: BorderRadius.circular(16),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.school_rounded, color: Colors.white, size: 20),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  children: [
-                                                    Text(
-                                                      'Targeting ${selectedExam.toUpperCase()}',
-                                                      style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14),
-                                                    ),
-                                                    Text(
-                                                      'Content personalized for your exam',
-                                                      style: GoogleFonts.plusJakartaSans(fontSize: 11, color: Colors.white70),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white.withOpacity(0.2),
-                                                  borderRadius: BorderRadius.circular(12),
-                                                ),
-                                                child: Text('Change', style: GoogleFonts.plusJakartaSans(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  // Exam topic chips
-                                  if (examTopics.isNotEmpty) ...[
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
-                                      child: Text('Quick Practice', style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.bold, color: textMain)),
-                                    ),
-                                    SizedBox(
-                                      height: 40,
-                                      child: ListView.separated(
-                                        scrollDirection: Axis.horizontal,
-                                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                                        itemCount: examTopics.length,
-                                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                                        itemBuilder: (context, i) {
-                                          final topic = examTopics[i];
-                                          return GestureDetector(
-                                            onTap: () {
-                                              HapticFeedback.selectionClick();
-                                              _topicController.text = topic;
-                                              _handleGenerate();
-                                            },
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                              decoration: BoxDecoration(
-                                                color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                                                borderRadius: BorderRadius.circular(20),
-                                                border: Border.all(color: primaryColor.withOpacity(0.3)),
-                                              ),
-                                              child: Text(topic, style: GoogleFonts.plusJakartaSans(fontSize: 12, fontWeight: FontWeight.w600, color: primaryColor)),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              );
-                            },
-                          ),
-                        ),
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-                            child: Text(
-                              'Quick Start',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: textMain,
-                              ),
-                            ),
-                          ),
-                        ),
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          sliver: SliverGrid.count(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 1.15,
-                            children: [
-                              CategoryCard(
-                                title: 'Add Questions',
-                                icon: Icons.edit_note_rounded,
-                                color: const Color(0xFFEF4444),
-                                subtitle: 'Write your own',
-                                isDark: isDark,
-                                onTap: () {
-                                  HapticFeedback.lightImpact();
-                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AddQuestionsScreen()));
-                                },
-                              ),
-                              CategoryCard(
-                                title: 'Study Set',
-                                icon: Icons.menu_book_rounded,
-                                color: const Color(0xFF10B981),
-                                subtitle: 'Summary + Flashcards',
-                                isDark: isDark,
-                                onTap: () {
-                                  HapticFeedback.lightImpact();
-                                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StudyMaterialEntryScreen()));
-                                },
-                              ),
-                              CategoryCard(
-                                title: 'AI Topic',
-                                icon: Icons.auto_awesome_rounded,
-                                color: const Color(0xFF5B13EC),
-                                subtitle: 'Any Topic',
-                                isDark: isDark,
-                                onTap: _showTopicInputDialog,
-                              ),
-                              CategoryCard(
-                                title: 'Explore',
-                                icon: Icons.explore_rounded,
-                                color: const Color(0xFF3B82F6),
-                                subtitle: 'All Topics',
-                                isDark: isDark,
-                                onTap: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const ExploreScreen(),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SliverToBoxAdapter(child: SizedBox(height: 120)),
-                      ],
-                    )
-                    .animate()
-                    .fadeIn(duration: 600.ms, curve: Curves.easeOut)
-                    .slideY(
-                      begin: 0.1,
-                      end: 0,
-                      duration: 600.ms,
-                      curve: Curves.easeOut,
-                    ),
-          ),
-          // Quirzy Mascot - Floating companion in bottom right corner
-          SafeArea(
-            child: FloatingCompanion(
-              alignment: Alignment.bottomRight,
-              onTap: () {
-                HapticFeedback.lightImpact();
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getGreeting() {
+  String _greeting() {
     final hour = DateTime.now().hour;
     final localizations = AppLocalizations.of(context)!;
     if (hour < 12) return localizations.greetingMorning;
@@ -841,69 +332,148 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return localizations.greetingEvening;
   }
 
-  void _handleQuickAction(String label) {
-    if (label == 'AI Gen') {
-      _inputFocusNode.requestFocus();
-    } else if (label == 'Quick') {
-      _startGeneration('General Knowledge', 10, 'medium');
-    } else if (label == 'Study') {
-      HapticFeedback.lightImpact();
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const StudyNotesScreen()));
-    } else if (label == 'Create') {
-      HapticFeedback.lightImpact();
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const AddQuestionsScreen()));
-    }
+  void _push(Widget screen) {
+    HapticFeedback.lightImpact();
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
   }
 
-  void _showTopicInputDialog() {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(
-          'Add a Practice Topic ✨',
-          style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold),
-        ),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(
-            hintText: 'Enter topic (e.g. "Photosynthesis")',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: GoogleFonts.plusJakartaSans(color: Colors.grey),
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    final localizations = AppLocalizations.of(context)!;
+    final text = Theme.of(context).textTheme;
+    final p = context.palette;
+    final stats = ref.watch(homeStatsProvider).value ?? const HomeStats();
+    final selectedExam = ref.watch(examProvider);
+    final examTopics = _examTopics(selectedExam);
+
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 24),
+          children: [
+            _HomeHeader(
+              userName: _userName,
+              photoUrl: _photoUrl,
+              greeting: _greeting(),
+              stats: stats,
+              onStreakTap: () => ref.read(tabIndexProvider.notifier).state = 2,
+              onProTap: () => _push(const SubscriptionScreen()),
             ),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              if (controller.text.isNotEmpty) {
-                _showQuizConfigurationDialog(controller.text.trim());
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF5B13EC),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+            const TopicStoriesRow(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('What do you want to practice?', style: text.headlineSmall),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _topicController,
+                    focusNode: _inputFocusNode,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _handleGenerate(),
+                    style: text.bodyLarge,
+                    decoration: InputDecoration(
+                      hintText: localizations.enterTopicHint,
+                      suffixIcon: IconButton(
+                        tooltip: 'Speak a topic',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          _listen();
+                        },
+                        icon: Icon(Icons.mic_rounded, color: p.accentText),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  AppButton(
+                    label: localizations.generateQuizButton,
+                    icon: Icons.auto_awesome_rounded,
+                    onPressed: _handleGenerate,
+                  ),
+                ],
               ),
             ),
-            child: Text(
-              'Next',
-              style: GoogleFonts.plusJakartaSans(color: Colors.white),
+            if (selectedExam != null && examTopics.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text('Quick practice for ${selectedExam.toUpperCase()}', style: text.titleMedium),
+                          ),
+                          TextButton(
+                            onPressed: () => _push(const ExamSelectionScreen()),
+                            child: const Text('Change'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        itemCount: examTopics.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, i) => ActionChip(
+                          label: Text(examTopics[i]),
+                          onPressed: () {
+                            HapticFeedback.selectionClick();
+                            _topicController.text = examTopics[i];
+                            _handleGenerate();
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('More ways to add', style: text.titleMedium),
+                  const SizedBox(height: 12),
+                  _AddTile(
+                    icon: Icons.edit_note_rounded,
+                    title: 'Write your own questions',
+                    subtitle: 'Type questions and answers yourself',
+                    onTap: () => _push(const AddQuestionsScreen()),
+                  ),
+                  const SizedBox(height: 8),
+                  _AddTile(
+                    icon: Icons.menu_book_rounded,
+                    title: 'Study set',
+                    subtitle: 'Summary, flashcards and practice from a topic',
+                    onTap: () => _push(const StudyMaterialEntryScreen()),
+                  ),
+                  const SizedBox(height: 8),
+                  _AddTile(
+                    icon: Icons.note_alt_rounded,
+                    title: 'Paste your notes',
+                    subtitle: 'Turn your notes into practice questions',
+                    onTap: () => _push(const StudyNotesScreen()),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  List<String> _getExamTopics(String? exam) {
+  List<String> _examTopics(String? exam) {
     const topics = {
       'jee': ['Kinematics', 'Thermodynamics', 'Organic Chemistry', 'Calculus', 'Optics'],
       'neet': ['Cell Biology', 'Human Physiology', 'Genetics', 'Organic Chemistry', 'Mechanics'],
@@ -919,41 +489,120 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (exam == null) return [];
     return topics[exam.toLowerCase()] ?? [];
   }
+}
 
-  Widget _buildMiniStat(
-    IconData icon,
-    String value,
-    String label,
-    Color color,
-    bool isDark,
-  ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 18),
-            const SizedBox(width: 4),
-            Text(
-              value,
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: isDark ? Colors.white : const Color(0xFF1E293B),
+class _HomeHeader extends StatelessWidget {
+  final String userName;
+  final String? photoUrl;
+  final String greeting;
+  final HomeStats stats;
+  final VoidCallback onStreakTap;
+  final VoidCallback onProTap;
+
+  const _HomeHeader({
+    required this.userName,
+    required this.photoUrl,
+    required this.greeting,
+    required this.stats,
+    required this.onStreakTap,
+    required this.onProTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final firstName = userName.trim().split(' ').first;
+    final initial = firstName.isEmpty ? '?' : firstName[0].toUpperCase();
+    final flame = stats.streak > 0 && !stats.streakAtRisk ? p.streak : p.textMuted;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: p.accent,
+            foregroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
+            child: Text(initial, style: text.titleMedium!.copyWith(color: p.onAccent)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(greeting, style: text.bodySmall),
+                Text(firstName, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleMedium),
+              ],
+            ),
+          ),
+          StatChip(
+            icon: Icons.local_fire_department_rounded,
+            label: '${stats.streak}',
+            color: flame,
+            onTap: onStreakTap,
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onProTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                border: Border.all(color: p.accentText, width: 1.5),
+              ),
+              child: Text(
+                'PRO',
+                style: text.labelMedium!.copyWith(color: p.accentText, fontWeight: FontWeight.w800),
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: GoogleFonts.plusJakartaSans(
-            fontSize: 10,
-            color: isDark ? Colors.white60 : const Color(0xFF64748B),
           ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AddTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _AddTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    return AppCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: p.accentSoft, shape: BoxShape.circle),
+            child: Icon(icon, color: p.accentText),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: text.titleSmall),
+                Text(subtitle, style: text.bodySmall),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: p.textMuted),
+        ],
+      ),
     );
   }
 }

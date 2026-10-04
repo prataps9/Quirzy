@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 
 /// API Key Settings Screen
 /// Allows users to input their own Gemini API key for topic/flashcard generation
@@ -23,8 +25,6 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
   bool _isLoading = true;
   bool _obscureKey = true;
   bool _isSaving = false;
-
-  static const primaryColor = Color(0xFF5B13EC);
 
   @override
   void initState() {
@@ -56,32 +56,31 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
       );
 
       if (mounted) {
+        final p = context.palette;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white),
+                Icon(Icons.check_circle, color: p.success),
                 const SizedBox(width: 12),
-                Text(
-                  'API key saved successfully!',
-                  style: GoogleFonts.poppins(),
-                ),
+                const Text('API key saved successfully!'),
               ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
             ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
+        final p = context.palette;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save API key: $e'),
-            backgroundColor: Colors.red,
+            content: Row(
+              children: [
+                Icon(Icons.error_outline_rounded, color: p.danger),
+                const SizedBox(width: 12),
+                Expanded(child: Text('Failed to save API key: $e')),
+              ],
+            ),
           ),
         );
       }
@@ -105,18 +104,11 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF0F0F0F) : Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'API Key Settings',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('API Key Settings')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
@@ -127,26 +119,20 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Info Card
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: primaryColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: primaryColor.withOpacity(0.2),
-                        ),
-                      ),
+                    AppCard(
                       child: Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: primaryColor.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
+                              color: p.accentSoft,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.chip,
+                              ),
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.key_rounded,
-                              color: primaryColor,
+                              color: p.accentText,
                               size: 24,
                             ),
                           ),
@@ -155,25 +141,12 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  'Use Your Own API Key',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: isDark
-                                        ? Colors.white
-                                        : Colors.black87,
-                                  ),
-                                ),
+                                Text('Use Your Own API Key',
+                                    style: t.titleMedium),
                                 const SizedBox(height: 4),
                                 Text(
                                   'Add your Gemini API key for unlimited topic and flashcard generation.',
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 13,
-                                    color: isDark
-                                        ? Colors.white70
-                                        : Colors.black54,
-                                  ),
+                                  style: t.bodySmall!.copyWith(fontSize: 13),
                                 ),
                               ],
                             ),
@@ -185,51 +158,21 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
                     const SizedBox(height: 24),
 
                     // API Key Input
-                    Text(
-                      'Gemini API Key',
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
+                    Text('Gemini API Key', style: t.titleSmall),
                     const SizedBox(height: 8),
                     TextFormField(
                       controller: _apiKeyController,
                       obscureText: _obscureKey,
-                      style: GoogleFonts.robotoMono(
+                      style: TextStyle(
+                        fontFamily: 'monospace',
                         fontSize: 14,
-                        color: isDark ? Colors.white : Colors.black87,
+                        color: p.text,
                       ),
                       decoration: InputDecoration(
                         hintText: 'AIza...',
-                        hintStyle: GoogleFonts.robotoMono(color: Colors.grey),
-                        filled: true,
-                        fillColor: isDark
-                            ? Colors.white.withOpacity(0.05)
-                            : Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: isDark
-                                ? Colors.white12
-                                : Colors.grey.shade300,
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(
-                            color: isDark
-                                ? Colors.white12
-                                : Colors.grey.shade300,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: primaryColor,
-                            width: 2,
-                          ),
+                        hintStyle: TextStyle(
+                          fontFamily: 'monospace',
+                          color: p.textMuted,
                         ),
                         prefixIcon: const Icon(Icons.vpn_key_rounded),
                         suffixIcon: Row(
@@ -278,85 +221,41 @@ class _ApiKeySettingsScreenState extends ConsumerState<ApiKeySettingsScreen> {
                       icon: const Icon(Icons.open_in_new, size: 18),
                       label: Text(
                         'Get API Key from Google AI Studio',
-                        style: GoogleFonts.poppins(fontSize: 13),
+                        style: t.labelLarge!.copyWith(fontSize: 13),
                       ),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: primaryColor,
-                        side: const BorderSide(color: primaryColor),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
                     ),
 
                     const SizedBox(height: 32),
 
                     // Save Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        onPressed: _isSaving ? null : _saveApiKey,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _isSaving
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    Colors.white,
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                'Save API Key',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                      ),
+                    AppButton(
+                      label: 'Save API Key',
+                      onPressed: _saveApiKey,
+                      loading: _isSaving,
                     ),
 
                     const SizedBox(height: 24),
 
                     // Security Note
-                    Container(
+                    AppCard(
+                      color: p.streakSoft,
+                      borderColor: p.streak.withValues(alpha: 0.3),
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.orange.withOpacity(0.3),
-                        ),
-                      ),
                       child: Row(
                         children: [
                           Icon(
                             Icons.security_rounded,
-                            color: Colors.orange[700],
+                            color: p.streak,
                             size: 20,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Your API key is stored securely on your device and never shared.',
-                              style: GoogleFonts.poppins(
-                                fontSize: 12,
-                                color: Colors.orange[800],
-                              ),
+                              style: t.bodySmall!.copyWith(color: p.streak),
                             ),
                           ),
                         ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_widgets.dart';
 
 /// FlashcardCacheService - Manages local caching of flashcards
 class FlashcardCacheService {
@@ -34,161 +35,110 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
     final card = widget.cards.isNotEmpty
         ? widget.cards[_currentIndex]
         : {'front': 'No cards', 'back': ''};
 
     return Scaffold(
-      backgroundColor: isDark
-          ? const Color(0xFF0F0F0F)
-          : const Color(0xFFF9F8FC),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: Text(
-          widget.title,
-          style: GoogleFonts.plusJakartaSans(
-            fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white : Colors.black,
-          ),
-        ),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: Text(widget.title)),
       body: widget.cards.isEmpty
           ? const Center(child: Text('No cards in this set'))
           : Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(AppSpace.xl),
               child: Column(
                 children: [
                   // Progress
                   Text(
                     'Card ${_currentIndex + 1} of ${widget.cards.length}',
-                    style: GoogleFonts.plusJakartaSans(
-                      fontSize: 14,
-                      color: isDark ? Colors.white70 : Colors.black54,
+                    style: textTheme.bodyMedium!.copyWith(color: p.textMuted),
+                  ),
+                  const SizedBox(height: AppSpace.sm),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    child: LinearProgressIndicator(
+                      value: (_currentIndex + 1) / widget.cards.length,
+                      minHeight: 6,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  LinearProgressIndicator(
-                    value: (_currentIndex + 1) / widget.cards.length,
-                    backgroundColor: isDark ? Colors.white12 : Colors.black12,
-                    color: const Color(0xFF5B13EC),
-                  ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: AppSpace.xxl),
 
                   // Card
                   Expanded(
                     child: GestureDetector(
                       onTap: () => setState(() => _showAnswer = !_showAnswer),
                       child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        child: Container(
+                        duration: const Duration(milliseconds: 200),
+                        child: AppCard(
                           key: ValueKey(_showAnswer),
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(24),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF1A1A1A)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF5B13EC).withOpacity(0.1),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                _showAnswer ? 'Answer' : 'Question',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF5B13EC),
+                          padding: const EdgeInsets.all(AppSpace.xl),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Column(
+                              children: [
+                                Expanded(
+                                  child: Center(
+                                    child: SingleChildScrollView(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _showAnswer ? 'Answer' : 'Question',
+                                            style: textTheme.labelMedium!.copyWith(
+                                              color: p.accentText,
+                                            ),
+                                          ),
+                                          const SizedBox(height: AppSpace.lg),
+                                          Text(
+                                            _showAnswer
+                                                ? card['back'] ?? ''
+                                                : card['front'] ?? '',
+                                            textAlign: TextAlign.center,
+                                            style: textTheme.titleLarge!.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _showAnswer
-                                    ? card['back'] ?? ''
-                                    : card['front'] ?? '',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark ? Colors.white : Colors.black,
+                                Text(
+                                  'Tap to flip',
+                                  style: textTheme.bodySmall,
                                 ),
-                              ),
-                              const Spacer(),
-                              Text(
-                                'Tap to flip',
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 12,
-                                  color: isDark
-                                      ? Colors.white38
-                                      : Colors.black38,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: AppSpace.xl),
 
                   // Action buttons
                   if (_showAnswer)
-                    Row(
+                    Column(
                       children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _nextCard(false),
-                            icon: const Icon(Icons.close, color: Colors.white),
-                            label: Text(
-                              'Still Learning',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
+                        AppButton(
+                          label: 'Got It!',
+                          icon: Icons.check_rounded,
+                          onPressed: () => _nextCard(true),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _nextCard(true),
-                            icon: const Icon(Icons.check, color: Colors.white),
-                            label: Text(
-                              'Got It!',
-                              style: GoogleFonts.plusJakartaSans(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
+                        const SizedBox(height: AppSpace.md),
+                        AppButton.secondary(
+                          label: 'Still Learning',
+                          icon: Icons.close_rounded,
+                          onPressed: () => _nextCard(false),
                         ),
                       ],
-                    ).animate().fade().slideY(begin: 0.2),
+                    ).animate().fade(duration: 200.ms).slideY(
+                          begin: 0.1,
+                          end: 0,
+                          duration: 200.ms,
+                        ),
                 ],
               ),
             ),
@@ -245,23 +195,13 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
   }
 }
 
-/// ShimmerPlaceholders - Loading placeholders for lists
+/// ShimmerPlaceholders - Flat loading placeholders for lists
 class ShimmerPlaceholders {
   static Widget historyList({int itemCount = 3}) {
     return Column(
       children: List.generate(
         itemCount,
-        (index) =>
-            Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                )
-                .animate(onPlay: (c) => c.repeat())
-                .shimmer(duration: const Duration(seconds: 1)),
+        (index) => const _SkeletonBox(height: 80, radius: AppRadius.control),
       ),
     );
   }
@@ -270,17 +210,27 @@ class ShimmerPlaceholders {
     return Column(
       children: List.generate(
         itemCount,
-        (index) =>
-            Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                )
-                .animate(onPlay: (c) => c.repeat())
-                .shimmer(duration: const Duration(seconds: 1)),
+        (index) => const _SkeletonBox(height: 120, radius: AppRadius.card),
+      ),
+    );
+  }
+}
+
+/// A plain, static placeholder block.
+class _SkeletonBox extends StatelessWidget {
+  final double height;
+  final double radius;
+
+  const _SkeletonBox({required this.height, required this.radius});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      height: height,
+      decoration: BoxDecoration(
+        color: context.palette.surfaceHigh,
+        borderRadius: BorderRadius.circular(radius),
       ),
     );
   }

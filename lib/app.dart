@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'features/l10n/app_localizations.dart';
@@ -48,30 +47,20 @@ class _QuirzyAppState extends ConsumerState<QuirzyApp> {
     return AnimatedBuilder(
       animation: settings,
       builder: (context, child) {
-        return DynamicColorBuilder(
-          builder: (lightDynamic, darkDynamic) {
-            return MaterialApp.router(
-              title: 'ExamAI',
-              theme: AppTheme.createTheme(
-                colorScheme: lightDynamic,
-                brightness: Brightness.light,
-              ),
-              darkTheme: AppTheme.createTheme(
-                colorScheme: darkDynamic,
-                brightness: Brightness.dark,
-              ),
-              themeMode: settings.themeMode,
-              routerConfig: router,
-              debugShowCheckedModeBanner: false,
-              localizationsDelegates: const [
-                AppLocalizations.delegate,
-                GlobalMaterialLocalizations.delegate,
-                GlobalWidgetsLocalizations.delegate,
-                GlobalCupertinoLocalizations.delegate,
-              ],
-              supportedLocales: const [Locale('en')],
-            );
-          },
+        return MaterialApp.router(
+          title: 'ExamAI',
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: settings.themeMode,
+          routerConfig: router,
+          debugShowCheckedModeBanner: false,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('en')],
         );
       },
     );

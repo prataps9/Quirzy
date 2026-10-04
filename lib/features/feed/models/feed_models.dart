@@ -167,6 +167,27 @@ class FeedCardState {
   }
 }
 
+/// XP for a correct answer, and the bonus for each combo milestone.
+const int kFeedXpPerCorrect = 10;
+const int kFeedComboBonusXp = 10;
+
+/// A combo milestone fires every this many correct answers in a row.
+const int kFeedComboMilestone = 5;
+
+enum FeedRewardKind { streak, comboMilestone, dailyGoal, levelUp }
+
+/// A celebration the feed screen should show once. [id] changes for every
+/// new reward so the screen can tell a new one from the one it showed.
+class FeedReward {
+  final int id;
+  final FeedRewardKind kind;
+
+  /// Streak days, combo count, goal size or new level, depending on [kind].
+  final int value;
+
+  const FeedReward({required this.id, required this.kind, required this.value});
+}
+
 /// State owned by [FeedController].
 class FeedState {
   final FeedLane lane;
@@ -180,7 +201,6 @@ class FeedState {
   final bool breakNudgeShown;
   final bool pendingBreakNudge;
   final bool dailyTargetCelebrated;
-  final bool pendingTargetBanner;
   final bool showHints;
   final int startIndex;
 
@@ -197,6 +217,15 @@ class FeedState {
   final bool allTopicsHidden;
   final bool pendingCaughtUpNotice;
 
+  /// Correct answers in a row this session; wrong answers reset it.
+  final int combo;
+
+  /// Questions answered or revealed today, for the daily-goal ring.
+  final int todayAnswered;
+
+  /// The latest celebration to show, if any.
+  final FeedReward? reward;
+
   FeedState({
     required this.lane,
     this.cards = const [],
@@ -209,13 +238,15 @@ class FeedState {
     this.breakNudgeShown = false,
     this.pendingBreakNudge = false,
     this.dailyTargetCelebrated = false,
-    this.pendingTargetBanner = false,
     this.showHints = true,
     this.startIndex = 0,
     this.laneEpoch = 0,
     this.hasMore = false,
     this.allTopicsHidden = false,
     this.pendingCaughtUpNotice = false,
+    this.combo = 0,
+    this.todayAnswered = 0,
+    this.reward,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
   factory FeedState.initial() => FeedState(lane: FeedLane.forYou);
@@ -234,13 +265,15 @@ class FeedState {
     bool? breakNudgeShown,
     bool? pendingBreakNudge,
     bool? dailyTargetCelebrated,
-    bool? pendingTargetBanner,
     bool? showHints,
     int? startIndex,
     int? laneEpoch,
     bool? hasMore,
     bool? allTopicsHidden,
     bool? pendingCaughtUpNotice,
+    int? combo,
+    int? todayAnswered,
+    FeedReward? reward,
   }) {
     return FeedState(
       lane: lane ?? this.lane,
@@ -255,7 +288,6 @@ class FeedState {
       pendingBreakNudge: pendingBreakNudge ?? this.pendingBreakNudge,
       dailyTargetCelebrated:
           dailyTargetCelebrated ?? this.dailyTargetCelebrated,
-      pendingTargetBanner: pendingTargetBanner ?? this.pendingTargetBanner,
       showHints: showHints ?? this.showHints,
       startIndex: startIndex ?? this.startIndex,
       laneEpoch: laneEpoch ?? this.laneEpoch,
@@ -263,6 +295,9 @@ class FeedState {
       allTopicsHidden: allTopicsHidden ?? this.allTopicsHidden,
       pendingCaughtUpNotice:
           pendingCaughtUpNotice ?? this.pendingCaughtUpNotice,
+      combo: combo ?? this.combo,
+      todayAnswered: todayAnswered ?? this.todayAnswered,
+      reward: reward ?? this.reward,
     );
   }
 }

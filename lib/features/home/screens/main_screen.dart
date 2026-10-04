@@ -57,7 +57,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     });
 
     return Scaffold(
-      extendBody: true,
       body: IndexedStack(index: selectedIndex, children: _screens),
       bottomNavigationBar: QuirzyNavigationBar(
         selectedIndex: selectedIndex,

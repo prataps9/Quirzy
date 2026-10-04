@@ -2,11 +2,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/feed_stats_service.dart';
+import '../../feed/services/streak_service.dart';
 import '../../feed/services/xp_service.dart';
 import '../../home/providers/home_stats_provider.dart';
 
 class MyPrepStats {
   final int streak;
+  final int bestStreak;
+  final bool streakAtRisk;
   final int xpToday;
   final XpLevel level;
   final int todayAnswered;
@@ -17,6 +20,8 @@ class MyPrepStats {
 
   const MyPrepStats({
     required this.streak,
+    required this.bestStreak,
+    required this.streakAtRisk,
     required this.xpToday,
     required this.level,
     required this.todayAnswered,
@@ -31,6 +36,7 @@ class MyPrepStats {
 }
 
 final myPrepStatsProvider = FutureProvider<MyPrepStats>((ref) async {
+  final streak = await ref.watch(streakProvider.future);
   final homeStats = await ref.watch(homeStatsProvider.future);
   final xpService = ref.watch(xpServiceProvider);
   final statsService = ref.watch(feedStatsServiceProvider);
@@ -47,7 +53,9 @@ final myPrepStatsProvider = FutureProvider<MyPrepStats>((ref) async {
   ]);
 
   return MyPrepStats(
-    streak: homeStats.streak,
+    streak: streak.current,
+    bestStreak: streak.best,
+    streakAtRisk: streak.atRisk,
     xpToday: homeStats.xpToday,
     level: results[0] as XpLevel,
     todayAnswered: results[1] as int,

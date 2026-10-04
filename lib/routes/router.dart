@@ -84,10 +84,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const FlashcardsScreen(),
       ),
       GoRoute(
-        path: AppRoutes.settings,
-        builder: (context, state) => const SettingsScreen(),
-      ),
-      GoRoute(
         path: AppRoutes.profile,
         builder: (context, state) => const ProfileSettingsScreen(),
       ),
