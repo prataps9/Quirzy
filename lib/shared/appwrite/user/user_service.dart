@@ -2,6 +2,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart';
 import 'package:flutter/foundation.dart';
 import '../appwrite_client.dart';
+import '../leaderboard/leaderboard_service.dart';
 
 /// User Service - Complete user management with Appwrite
 /// 
@@ -314,21 +315,21 @@ class UserService {
     }
   }
 
-  /// Delete user account and all associated data
+  /// Deletes the user's profile document, then blocks the Appwrite account
+  /// (`PATCH /account/status`) so it can't be signed in to again. A profile
+  /// that was never created (404) is not an error. The caller still has to
+  /// end the session and clear local data.
   Future<void> deleteUserAccount({required String userId}) async {
     try {
-      // Delete user profile
       await deleteUserProfile(userId: userId);
-      
-      // Note: In production, also delete:
-      // - Quiz history
-      // - Flashcard sets
-      // - Achievements
-      // - Leaderboard entries
-      // - Uploaded files
-      
+    } on AppwriteException catch (e) {
+      if (e.code != 404) rethrow;
+    }
+    await LeaderboardService().removeEntry(userId);
+    try {
+      await AppwriteClient.instance.account.updateStatus();
     } catch (e) {
-      debugPrint('UserService: Delete account error: $e');
+      debugPrint('UserService: Block account error: $e');
       rethrow;
     }
   }

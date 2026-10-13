@@ -18,7 +18,7 @@ import '../features/profile/screens/notification_settings_screen.dart';
 
 class AuthListenator extends ChangeNotifier {
   AuthListenator(this.ref) {
-    ref.listen<AsyncValue<dynamic>>(authProvider, (_, __) => notifyListeners());
+    ref.listen<AsyncValue<dynamic>>(authProvider, (_, _) => notifyListeners());
   }
   final Ref ref;
 }
@@ -29,21 +29,20 @@ final routerProvider = Provider<GoRouter>((ref) {
     debugLogDiagnostics: true,
     refreshListenable: AuthListenator(ref),
     redirect: (context, state) {
-      final authState = ref.watch(authProvider);
+      final authState = ref.read(authProvider);
 
       final isLoggedIn = authState.value != null;
       final isLoggingIn =
           state.matchedLocation == AppRoutes.auth ||
-          state.matchedLocation == AppRoutes.login ||
-          state.matchedLocation == AppRoutes.signup ||
           state.matchedLocation == AppRoutes.success;
 
       if (authState.isLoading) return null;
 
       if (!isLoggedIn && !isLoggingIn) return AppRoutes.auth;
       if (isLoggedIn && isLoggingIn) return AppRoutes.home;
-      if (isLoggedIn && state.matchedLocation == AppRoutes.initial)
+      if (isLoggedIn && state.matchedLocation == AppRoutes.initial) {
         return AppRoutes.home;
+      }
 
       return null;
     },
@@ -55,14 +54,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.auth,
         builder: (context, state) => const WelcomeScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.login,
-        builder: (context, state) => const LoginScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.signup,
-        builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
         path: AppRoutes.success,
@@ -86,10 +77,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.profile,
         builder: (context, state) => const ProfileSettingsScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.apiKeySettings,
-        builder: (context, state) => const ApiKeySettingsScreen(),
       ),
       GoRoute(
         path: AppRoutes.studyNotes,

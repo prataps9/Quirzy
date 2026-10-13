@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../shared/services/notification_scheduler.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../models/feed_models.dart';
 import '../services/feed_bookmark_service.dart';
@@ -11,6 +12,7 @@ import '../services/feed_engagement_service.dart';
 import '../services/feed_ranker.dart';
 import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
+import '../services/leaderboard_sync.dart';
 import '../services/practice_content_service.dart';
 import '../services/streak_service.dart';
 import '../services/xp_service.dart';
@@ -572,6 +574,9 @@ class FeedController extends Notifier<FeedState> {
     ref.invalidate(streakProvider);
     ref.invalidate(homeStatsProvider);
     ref.invalidate(xpTotalProvider);
+    ref.read(leaderboardSyncProvider).schedule();
+    // Today is safe now: move tonight's "streak at risk" alert to tomorrow.
+    if (before == 0) unawaited(ref.read(notificationSchedulerProvider).onPractisedToday());
     return (firstOfDay: before == 0, goalReached: goalReached);
   }
 

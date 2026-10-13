@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/content_providers.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../subscription/services/usage_limits.dart';
+import '../../subscription/widgets/limit_sheet.dart';
 import 'study_material_screen.dart';
 
 class StudyMaterialEntryScreen extends ConsumerStatefulWidget {
@@ -34,6 +36,12 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
       return;
     }
 
+    final usage = ref.read(usageLimitsProvider.notifier);
+    if (!await usage.canUse(UsageKind.studySet)) {
+      if (mounted) showLimitSheet(context, UsageKind.studySet);
+      return;
+    }
+
     setState(() => _isGenerating = true);
 
     try {
@@ -42,6 +50,9 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
         topic: topic,
         studyNotes: _showNotes && _notesCtrl.text.trim().isNotEmpty ? _notesCtrl.text.trim() : null,
       );
+      await usage.record(UsageKind.studySet);
+      // The new set is saved server-side; refetch so it shows under Recent.
+      ref.invalidate(studyMaterialHistoryProvider);
 
       if (mounted) {
         Navigator.push(
@@ -52,23 +63,15 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
     } catch (e) {
       if (mounted) {
         final p = context.palette;
-        final isLimit = e.toString().contains('daily_limit');
-        final msg = e.toString().contains('daily_limit_reached')
-            ? 'Daily limit reached (1 free/day). Upgrade to Pro for unlimited!'
-            : 'Failed to generate: $e';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                Icon(
-                  isLimit ? Icons.info_outline_rounded : Icons.error_outline_rounded,
-                  color: isLimit ? p.accentText : p.danger,
-                ),
+                Icon(Icons.error_outline_rounded, color: p.danger),
                 const SizedBox(width: 12),
-                Expanded(child: Text(msg)),
+                Expanded(child: Text('Failed to generate: $e')),
               ],
             ),
-            action: isLimit ? SnackBarAction(label: 'Upgrade', onPressed: () {}) : null,
           ),
         );
       }
@@ -83,6 +86,7 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
     final textTheme = Theme.of(context).textTheme;
 
     final historyAsync = ref.watch(studyMaterialHistoryProvider);
+    final isPro = ref.watch(proStatusProvider).isPro;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Study Set Generator')),
@@ -111,22 +115,24 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                               ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: p.accent,
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
-                            ),
-                            child: Text(
-                              '1 FREE/DAY',
-                              style: textTheme.labelSmall!.copyWith(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: p.onAccent,
+                          if (!isPro) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: p.accent,
+                                borderRadius: BorderRadius.circular(AppRadius.pill),
+                              ),
+                              child: Text(
+                                '${UsageKind.studySet.freePerDay} FREE/DAY',
+                                style: textTheme.labelSmall!.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: p.onAccent,
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

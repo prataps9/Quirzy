@@ -15,6 +15,15 @@ class ExamSelectionScreen extends ConsumerStatefulWidget {
 
 class _ExamSelectionScreenState extends ConsumerState<ExamSelectionScreen> {
   String? _selectedExam;
+  bool _saving = false;
+
+  /// Saves the choice and returns to MainScreen, which pushed this screen.
+  /// (Navigator.pop is not blocked by the PopScope below — only back is.)
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    await ref.read(examProvider.notifier).setExam(_selectedExam!);
+    if (mounted) Navigator.of(context).pop();
+  }
 
   final List<Map<String, dynamic>> _exams = [
     {'id': 'mba', 'name': 'MBA', 'icon': '💼'},
@@ -34,92 +43,85 @@ class _ExamSelectionScreenState extends ConsumerState<ExamSelectionScreen> {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
 
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 20),
-              Text(
-                'Prepare for Success 🎯',
-                style: textTheme.headlineLarge!.copyWith(color: p.text),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Which exam are you targeting?',
-                style: textTheme.bodyLarge!.copyWith(color: p.textMuted),
-              ),
-              const SizedBox(height: 32),
-
-              Expanded(
-                child: MasonryGridView.count(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  itemCount: _exams.length,
-                  itemBuilder: (context, index) {
-                    final exam = _exams[index];
-                    final isSelected = _selectedExam == exam['id'];
-
-                    return AppCard(
-                      color: isSelected ? p.accentSoft : p.surface,
-                      borderColor: isSelected ? p.accentText : p.border,
-                      onTap: () {
-                        setState(() {
-                          _selectedExam = exam['id'];
-                        });
-                      },
-                      child: Column(
-                        children: [
-                          Text(
-                            exam['icon'],
-                            style: const TextStyle(fontSize: 40),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            exam['name'],
-                            style: textTheme.titleMedium!.copyWith(
-                              color: p.text,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          if (isSelected) ...[
-                            const SizedBox(height: 8),
-                            Icon(
-                              Icons.check_circle_rounded,
-                              color: p.accentText,
-                              size: 20,
-                            ),
-                          ],
-                        ],
-                      ),
-                    );
-                  },
+    // Picking an exam is required: the feed is built around it.
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: p.bg,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 20),
+                Text(
+                  'Prepare for Success 🎯',
+                  style: textTheme.headlineLarge!.copyWith(color: p.text),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  'Which exam are you targeting?',
+                  style: textTheme.bodyLarge!.copyWith(color: p.textMuted),
+                ),
+                const SizedBox(height: 32),
 
-              const SizedBox(height: 24),
-              AppButton(
-                label: 'Start Preparing',
-                onPressed: _selectedExam != null
-                    ? () {
-                        ref.read(examProvider.notifier).setExam(_selectedExam!);
-                        Navigator.of(
-                          context,
-                        ).pop(); // Go back to Main/Home assuming it was pushed
-                        // OR if it's the root, we might need to navigate differently.
-                        // For now, let's assume MainScreen will redirect here if needed, and popping returns.
-                        // IF we are replacing MainScreen, we should use go_router or pushReplacement.
-                        // I'll stick to pop if pushed. If checking in MainScreen, MainScreen stays in stack?
-                        // Actually, if prompted from MainScreen, popping works.
-                      }
-                    : null,
-              ),
-              const SizedBox(height: 12),
-            ],
+                Expanded(
+                  child: MasonryGridView.count(
+                    crossAxisCount: 2,
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 16,
+                    itemCount: _exams.length,
+                    itemBuilder: (context, index) {
+                      final exam = _exams[index];
+                      final isSelected = _selectedExam == exam['id'];
+
+                      return AppCard(
+                        color: isSelected ? p.accentSoft : p.surface,
+                        borderColor: isSelected ? p.accentText : p.border,
+                        onTap: () {
+                          setState(() {
+                            _selectedExam = exam['id'];
+                          });
+                        },
+                        child: Column(
+                          children: [
+                            Text(
+                              exam['icon'],
+                              style: const TextStyle(fontSize: 40),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              exam['name'],
+                              style: textTheme.titleMedium!.copyWith(
+                                color: p.text,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            if (isSelected) ...[
+                              const SizedBox(height: 8),
+                              Icon(
+                                Icons.check_circle_rounded,
+                                color: p.accentText,
+                                size: 20,
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+                AppButton(
+                  label: 'Start Preparing',
+                  loading: _saving,
+                  onPressed: _selectedExam != null ? _save : null,
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
         ),
       ),

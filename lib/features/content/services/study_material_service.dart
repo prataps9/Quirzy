@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'package:appwrite/appwrite.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../shared/appwrite/appwrite_client.dart';
-import '../../../features/subscription/services/payment_service.dart';
 
 class StudyMaterial {
   final String id;
@@ -46,32 +44,12 @@ class StudyMaterialService {
   final Account _account = AppwriteClient.instance.account;
   final Databases _db = AppwriteClient.instance.databases;
 
-  /// Returns true if user can generate study material (Pro = unlimited, Free = 1/day)
-  Future<bool> canGenerate() async {
-    final isPro = await PaymentService.isPro();
-    if (isPro) return true;
-
-    final prefs = await SharedPreferences.getInstance();
-    final today = DateTime.now().toIso8601String().split('T').first;
-    final lastDate = prefs.getString('last_study_material_date');
-    return lastDate != today;
-  }
-
-  Future<void> _recordUsage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final today = DateTime.now().toIso8601String().split('T').first;
-    await prefs.setString('last_study_material_date', today);
-  }
-
+  /// Generates a study set. The daily allowance is checked and recorded
+  /// by the caller via `usageLimitsProvider` (`UsageKind.studySet`).
   Future<StudyMaterial> generateStudyMaterial({
     required String topic,
     String? studyNotes,
   }) async {
-    final allowed = await canGenerate();
-    if (!allowed) {
-      throw Exception('daily_limit_reached');
-    }
-
     final user = await _account.get();
 
     final execution = await _fn.createExecution(
@@ -89,8 +67,6 @@ class StudyMaterialService {
 
     final response = jsonDecode(execution.responseBody) as Map<String, dynamic>;
     if (response['error'] != null) throw Exception(response['error']);
-
-    await _recordUsage();
 
     return StudyMaterial(
       id: response['id'] as String? ?? '',

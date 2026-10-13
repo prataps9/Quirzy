@@ -17,17 +17,18 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.0'
+          flutter-version: '3.38.1'
           channel: stable
           cache: true
 
       - name: Install dependencies
-        working-directory: Quirzy
         run: flutter pub get
 
       - name: Analyze
-        working-directory: Quirzy
         run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
 
   build-apk:
     name: Build APK
@@ -45,21 +46,20 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.0'
+          flutter-version: '3.38.1'
           channel: stable
           cache: true
 
       - name: Install dependencies
-        working-directory: Quirzy
         run: flutter pub get
 
       - name: Decode keystore
-        working-directory: Quirzy/android
+        working-directory: android
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/upload-keystore.jks
 
       - name: Write key.properties
-        working-directory: Quirzy/android
+        working-directory: android
         run: |
           cat > key.properties <<EOF
           storePassword=${{ secrets.STORE_PASSWORD }}
@@ -69,14 +69,13 @@ jobs:
           EOF
 
       - name: Build release APK
-        working-directory: Quirzy
         run: flutter build apk --release --split-per-abi
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-apks
-          path: Quirzy/build/app/outputs/flutter-apk/*.apk
+          path: build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
   release:
@@ -98,21 +97,20 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.0'
+          flutter-version: '3.38.1'
           channel: stable
           cache: true
 
       - name: Install dependencies
-        working-directory: Quirzy
         run: flutter pub get
 
       - name: Decode keystore
-        working-directory: Quirzy/android
+        working-directory: android
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/upload-keystore.jks
 
       - name: Write key.properties
-        working-directory: Quirzy/android
+        working-directory: android
         run: |
           cat > key.properties <<EOF
           storePassword=${{ secrets.STORE_PASSWORD }}
@@ -122,11 +120,9 @@ jobs:
           EOF
 
       - name: Build release APK (fat)
-        working-directory: Quirzy
         run: flutter build apk --release
 
       - name: Build release APK (split)
-        working-directory: Quirzy
         run: flutter build apk --release --split-per-abi
 
       - name: Get version from tag
@@ -137,16 +133,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.VERSION }}
-          name: ExamAI ${{ steps.version.outputs.VERSION }}
+          name: Quirzy ${{ steps.version.outputs.VERSION }}
           body: |
-            ## ExamAI ${{ steps.version.outputs.VERSION }}
-
-            ### What's new
-            - Smart notification system (SRS reminders, streak protection, exam countdown)
-            - Mock Test mode for JEE, NEET, CAT and more
-            - Study Material generator (Summary + Flashcards + Quiz)
-            - Rank Predictor after every mock test
-            - Spaced Repetition (SM-2) for flashcards
+            ## Quirzy ${{ steps.version.outputs.VERSION }}
 
             ### Downloads
             - `app-arm64-v8a-release.apk` — most modern Android phones (recommended)
@@ -154,9 +143,9 @@ jobs:
             - `app-x86_64-release.apk` — emulators
             - `app-release.apk` — universal (larger, works on all devices)
           files: |
-            Quirzy/build/app/outputs/flutter-apk/app-release.apk
-            Quirzy/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
-            Quirzy/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
-            Quirzy/build/app/outputs/flutter-apk/app-x86_64-release.apk
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            build/app/outputs/flutter-apk/app-x86_64-release.apk
           draft: false
           prerelease: false

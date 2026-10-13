@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.RemoteViews
 
 class QuirzyWidgetProvider : AppWidgetProvider() {
@@ -24,8 +25,11 @@ class QuirzyWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int
     ) {
-        // Create an Intent to launch MainActivity
-        val intent = Intent(context, MainActivity::class.java)
+        // Open the app on the Practice tab: DeepLinkService handles quirzy://practice.
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("quirzy://practice")).apply {
+            setPackage(context.packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
         val pendingIntent = PendingIntent.getActivity(
             context,
             0,
@@ -33,16 +37,12 @@ class QuirzyWidgetProvider : AppWidgetProvider() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Construct the RemoteViews object
         val views = RemoteViews(context.packageName, R.layout.quirzy_widget)
-        
-        // Attach click listener to the start button
-        views.setOnClickPendingIntent(R.id.start_quiz_button, pendingIntent)
-        
-        // Also attach to the header/container for better usability
+
+        // The button and the header both open Practice.
+        views.setOnClickPendingIntent(R.id.practice_button, pendingIntent)
         views.setOnClickPendingIntent(R.id.header_row, pendingIntent)
 
-        // Instruct the widget manager to update the widget
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 }

@@ -1,19 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../services/payment_service.dart';
+import '../services/usage_limits.dart';
 
-class SubscriptionScreen extends StatefulWidget {
+/// Plan prices in rupees. Keep in step with [PaymentService]'s amounts.
+const int _monthlyPrice = 299;
+const int _yearlyPrice = 2999;
+
+/// How much the yearly plan saves over twelve monthly ones, in whole percent.
+final int _yearlySavingPercent = ((1 - _yearlyPrice / (12 * _monthlyPrice)) * 100).floor();
+
+final _rupees = NumberFormat.decimalPattern('en_IN');
+String _price(int rupees) => '₹${_rupees.format(rupees)}';
+
+class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
 
   @override
-  State<SubscriptionScreen> createState() => _SubscriptionScreenState();
+  ConsumerState<SubscriptionScreen> createState() => _SubscriptionScreenState();
 }
 
-class _SubscriptionScreenState extends State<SubscriptionScreen> {
+class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   int _selectedPlan = 1; // 0: Monthly, 1: Yearly
   bool _isProcessing = false;
   late PaymentService _paymentService;
@@ -28,9 +41,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     _paymentService.onExternalWallet = _onExternalWallet;
   }
 
-  void _onPaymentSuccess(PaymentSuccessResponse response) {
+  Future<void> _onPaymentSuccess(PaymentSuccessResponse response) async {
+    // PaymentService has already saved Pro; pick it up everywhere.
+    await ref.read(usageLimitsProvider.notifier).refresh();
+    if (!mounted) return;
     setState(() => _isProcessing = false);
     HapticFeedback.heavyImpact();
+    final expiresAt = ref.read(proStatusProvider).expiresAt;
 
     showDialog(
       context: context,
@@ -56,13 +73,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ).animate().scale(duration: 250.ms, curve: Curves.easeOut),
                 const SizedBox(height: 24),
                 Text(
-                  '🎉 Welcome to Pro!',
+                  'Welcome to Pro',
                   textAlign: TextAlign.center,
                   style: t.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'You now have unlimited access\nto all premium features!',
+                  expiresAt == null
+                      ? 'No daily limits on AI generation.'
+                      : 'No daily limits on AI generation until ${_date(expiresAt)}.',
                   textAlign: TextAlign.center,
                   style: t.bodyMedium!.copyWith(color: p.textMuted),
                 ),
@@ -83,7 +102,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 ),
                 const SizedBox(height: 24),
                 AppButton(
-                  label: 'Start Exploring! 🚀',
+                  label: 'Done',
                   onPressed: () {
                     Navigator.pop(ctx);
                     Navigator.pop(context);
@@ -147,10 +166,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     });
   }
 
+  static String _date(DateTime d) => DateFormat('d MMM yyyy').format(d);
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
+    final pro = ref.watch(proStatusProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -203,13 +225,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 child: Column(
                   children: [
                     Text(
-                      'Unlock Your\nFull Potential 🚀',
+                      'Quirzy Pro',
                       textAlign: TextAlign.center,
                       style: t.displaySmall,
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Get unlimited access to everything.',
+                      'No daily limits on AI generation.',
                       textAlign: TextAlign.center,
                       style: t.bodyLarge!.copyWith(color: p.textMuted),
                     ),
@@ -228,28 +250,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 child: Column(
                   children: [
                     _buildBenefitRow(
-                      'Unlimited AI Topics',
-                      'Add as many practice topics to your feed as you want.',
+                      'Unlimited AI topics',
+                      'Free: ${UsageKind.topic.freePerDay} a day.',
                     ),
                     _buildBenefitRow(
-                      'Unlimited Practice Feed',
-                      'No daily cap on questions — keep swiping.',
+                      'Unlimited study sets',
+                      'Free: ${UsageKind.studySet.freePerDay} a day.',
                     ),
                     _buildBenefitRow(
-                      'AI Study Materials',
-                      'Instant Summary + Flashcards + Practice Questions for any topic.',
-                    ),
-                    _buildBenefitRow(
-                      'Exam Specific Content',
-                      'Access premium JEE, NEET, & MBA question sets.',
-                    ),
-                    _buildBenefitRow(
-                      'No Ads',
-                      'Enjoy a completely distraction-free experience.',
-                    ),
-                    _buildBenefitRow(
-                      'Advanced Analytics',
-                      'Track your progress with detailed insights.',
+                      'Unlimited flashcard sets',
+                      'Free: ${UsageKind.flashcardSet.freePerDay} a day.',
                     ),
                   ],
                 ),
@@ -257,88 +267,121 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
               const SizedBox(height: 40),
 
-              // Plan Selection
-              Text('Choose your plan', style: t.titleLarge),
-              const SizedBox(height: 20),
+              if (pro.isPro)
+                _buildProCard(pro.expiresAt)
+              else ...[
+                // Plan Selection
+                Text('Choose your plan', style: t.titleLarge),
+                const SizedBox(height: 20),
 
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _buildPlanCard(
-                      index: 0,
-                      title: 'Monthly',
-                      price: '₹299',
-                      period: '/mo',
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildPlanCard(
-                      index: 1,
-                      title: 'Yearly',
-                      price: '₹2,999',
-                      period: '/yr',
-                      isBestValue: true,
-                      saveText: 'Save 20%',
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // Secure payment info
-              Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.lock_rounded, size: 14, color: p.textMuted),
-                    const SizedBox(width: 6),
-                    Text('Secured by Razorpay', style: t.bodySmall),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Payment Methods Row
-              Center(
-                child: Wrap(
-                  spacing: 16,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    _buildPaymentMethodChip('UPI', Icons.account_balance_rounded),
-                    _buildPaymentMethodChip('Cards', Icons.credit_card_rounded),
-                    _buildPaymentMethodChip('Net Banking', Icons.language_rounded),
-                    _buildPaymentMethodChip(
-                      'Wallet',
-                      Icons.account_balance_wallet_rounded,
+                    Expanded(
+                      child: _buildPlanCard(
+                        index: 0,
+                        title: 'Monthly',
+                        price: _price(_monthlyPrice),
+                        period: '/mo',
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _buildPlanCard(
+                        index: 1,
+                        title: 'Yearly',
+                        price: _price(_yearlyPrice),
+                        period: '/yr',
+                        isBestValue: true,
+                        saveText: 'Save $_yearlySavingPercent%',
+                      ),
                     ),
                   ],
                 ),
-              ),
 
-              const SizedBox(height: 32),
+                const SizedBox(height: 12),
 
-              // CTA Button
-              AppButton(
-                label: _isProcessing
-                    ? 'Processing...'
-                    : (_selectedPlan == 0
-                          ? 'Start Monthly Plan'
-                          : 'Start Yearly Plan'),
-                icon: _isProcessing ? null : Icons.bolt_rounded,
-                onPressed: _isProcessing ? null : _startPayment,
-              ),
+                // Secure payment info
+                Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_rounded, size: 14, color: p.textMuted),
+                      const SizedBox(width: 6),
+                      Text('Secured by Razorpay', style: t.bodySmall),
+                    ],
+                  ),
+                ),
 
-              const SizedBox(height: 16),
-              Center(child: Text('Cancel anytime. Terms apply.', style: t.bodySmall)),
+                const SizedBox(height: 24),
+
+                // Payment Methods Row
+                Center(
+                  child: Wrap(
+                    spacing: 16,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      _buildPaymentMethodChip('UPI', Icons.account_balance_rounded),
+                      _buildPaymentMethodChip('Cards', Icons.credit_card_rounded),
+                      _buildPaymentMethodChip('Net Banking', Icons.language_rounded),
+                      _buildPaymentMethodChip(
+                        'Wallet',
+                        Icons.account_balance_wallet_rounded,
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // CTA Button
+                AppButton(
+                  label: _isProcessing
+                      ? 'Processing...'
+                      : (_selectedPlan == 0
+                            ? 'Pay ${_price(_monthlyPrice)} for 1 month'
+                            : 'Pay ${_price(_yearlyPrice)} for 1 year'),
+                  icon: _isProcessing ? null : Icons.bolt_rounded,
+                  onPressed: _isProcessing ? null : _startPayment,
+                ),
+
+                const SizedBox(height: 16),
+                Center(child: Text('One-time payment · no auto-renew', style: t.bodySmall)),
+              ],
               const SizedBox(height: 24),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Shown instead of the plans while Pro is active.
+  Widget _buildProCard(DateTime? expiresAt) {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    return AppCard(
+      color: p.accentSoft,
+      borderColor: p.accentText,
+      child: Row(
+        children: [
+          Icon(Icons.verified_rounded, color: p.accentText, size: 28),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  expiresAt == null ? "You're Pro" : "You're Pro until ${_date(expiresAt)}",
+                  style: t.titleMedium,
+                ),
+                const SizedBox(height: 2),
+                Text('Pro ends on its own. Nothing renews.', style: t.bodySmall),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -11,7 +12,7 @@ import '../../shared/providers/providers.dart';
 import '../../shared/theme/app_palette.dart';
 import '../../shared/widgets/app_widgets.dart';
 import 'success_screen.dart';
-import '../../features/profile/screens/screens.dart';
+import '../../features/profile/screens/privacy_policy_screen.dart';
 import '../../features/l10n/app_localizations.dart';
 
 class WelcomeScreen extends ConsumerStatefulWidget {
@@ -28,6 +29,18 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   final GlobalKey _checkboxKey = GlobalKey();
 
+  late final TapGestureRecognizer _privacyTap = TapGestureRecognizer()
+    ..onTap = () => Navigator.of(context).push(_createRoute(const PrivacyPolicyScreen()));
+  late final TapGestureRecognizer _termsTap = TapGestureRecognizer()
+    ..onTap = () => Navigator.of(context).push(_createRoute(const TermsScreen()));
+
+  @override
+  void dispose() {
+    _privacyTap.dispose();
+    _termsTap.dispose();
+    super.dispose();
+  }
+
   void _showConsentRequiredMessage() {
     HapticFeedback.lightImpact();
     final p = context.palette;
@@ -38,7 +51,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
             Icon(Icons.warning_rounded, color: p.danger),
             const SizedBox(width: 12),
             const Expanded(
-              child: Text('Please accept the Privacy Policy to continue'),
+              child: Text('Please accept the Privacy Policy and Terms to continue'),
             ),
           ],
         ),
@@ -66,13 +79,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       if (!mounted) return;
 
       if (ref.read(authProvider).value != null) {
-        try {
-          await ref.read(notificationProvider.notifier).sendTokenAfterLogin();
-        } catch (e) {
-          debugPrint('⚠️ Could not send FCM token: $e');
-        }
-        if (!mounted) return;
-
         ref.read(tabIndexProvider.notifier).state = 0;
 
         Navigator.pushReplacement(
@@ -81,7 +87,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
             builder: (context) => SuccessScreen(
               onComplete: () => context.go(AppRoutes.home),
               message: 'Signed In!',
-              subtitle: 'Welcome back to ExamAI',
+              subtitle: 'Welcome to Quirzy',
             ),
           ),
         );
@@ -154,7 +160,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                           ),
                           const SizedBox(height: 20),
                           Text(
-                            'ExamAI',
+                            'Quirzy',
                             style: textTheme.displayLarge!.copyWith(
                               fontSize: 44,
                               color: p.text,
@@ -260,22 +266,26 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: GestureDetector(
-                  onTap: () => Navigator.of(context)
-                      .push(_createRoute(const PrivacyPolicyScreen())),
-                  child: RichText(
-                    text: TextSpan(
-                      style: textTheme.bodySmall!.copyWith(
-                        fontSize: 12.5,
-                        color: p.textMuted,
-                      ),
-                      children: [
-                        TextSpan(text: l10n.iAgreeToThe),
-                        TextSpan(text: l10n.privacyPolicy, style: linkStyle),
-                        TextSpan(text: l10n.and),
-                        TextSpan(text: l10n.terms, style: linkStyle),
-                      ],
+                child: RichText(
+                  text: TextSpan(
+                    style: textTheme.bodySmall!.copyWith(
+                      fontSize: 12.5,
+                      color: p.textMuted,
                     ),
+                    children: [
+                      TextSpan(text: l10n.iAgreeToThe),
+                      TextSpan(
+                        text: l10n.privacyPolicy,
+                        style: linkStyle,
+                        recognizer: _privacyTap,
+                      ),
+                      TextSpan(text: l10n.and),
+                      TextSpan(
+                        text: l10n.terms,
+                        style: linkStyle,
+                        recognizer: _termsTap,
+                      ),
+                    ],
                   ),
                 ),
               ),

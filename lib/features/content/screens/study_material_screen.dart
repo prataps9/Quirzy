@@ -1,20 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../feed/providers/feed_providers.dart';
+import '../../feed/services/practice_content_service.dart';
 import '../services/study_material_service.dart';
 
-class StudyMaterialScreen extends StatefulWidget {
+class StudyMaterialScreen extends ConsumerStatefulWidget {
   final StudyMaterial material;
 
   const StudyMaterialScreen({super.key, required this.material});
 
   @override
-  State<StudyMaterialScreen> createState() => _StudyMaterialScreenState();
+  ConsumerState<StudyMaterialScreen> createState() => _StudyMaterialScreenState();
 }
 
-class _StudyMaterialScreenState extends State<StudyMaterialScreen> with SingleTickerProviderStateMixin {
+class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _currentFlashcard = 0;
   bool _isFlipped = false;
@@ -22,6 +27,9 @@ class _StudyMaterialScreenState extends State<StudyMaterialScreen> with SingleTi
   // Mini quiz state
   List<int?> _quizAnswers = [];
   bool _quizSubmitted = false;
+
+  bool _addingToFeed = false;
+  bool _addedToFeed = false;
 
   @override
   void initState() {
@@ -78,6 +86,78 @@ class _StudyMaterialScreenState extends State<StudyMaterialScreen> with SingleTi
         ],
       ),
     );
+  }
+
+  /// Turns the study set's quiz items into practice-feed questions. Items
+  /// come back as `questionText`/`options`/`correctAnswer` (an index), but
+  /// older sets may use `question` and an `answer` given as the option text.
+  List<Map<String, dynamic>> _quizAsFeedQuestions() {
+    final material = widget.material;
+    final out = <Map<String, dynamic>>[];
+    for (var i = 0; i < material.quiz.length; i++) {
+      final q = material.quiz[i];
+      final text = (q['questionText'] ?? q['question'] ?? '').toString().trim();
+      final options = (q['options'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+      if (text.isEmpty || options.length < 2) continue;
+
+      final raw = q['correctAnswer'] ?? q['correctIndex'] ?? q['answer'];
+      var correct = raw is int ? raw : int.tryParse('$raw') ?? options.indexOf('$raw');
+      // A bare letter ("B") means the option at that position.
+      if (correct < 0 && raw is String && RegExp(r'^[A-Da-d]$').hasMatch(raw.trim())) {
+        correct = raw.trim().toUpperCase().codeUnitAt(0) - 65;
+      }
+      if (correct < 0 || correct >= options.length) correct = 0;
+
+      out.add({
+        // Stable ids so adding the same set twice doesn't duplicate questions.
+        'id': '${material.id}_q$i',
+        'questionText': text,
+        'options': options,
+        'correctAnswer': correct,
+        'explanation': q['explanation']?.toString() ?? '',
+      });
+    }
+    return out;
+  }
+
+  Future<void> _addToFeed() async {
+    final questions = _quizAsFeedQuestions();
+    if (questions.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _addingToFeed = true);
+
+    final topic = widget.material.topic;
+    try {
+      await ref.read(practiceContentServiceProvider).addToQuestionPool(
+            questions,
+            topicId: widget.material.id,
+            topic: topic,
+          );
+      await ref.read(feedControllerProvider.notifier).switchToTopic(topic);
+      if (!mounted) return;
+      setState(() => _addedToFeed = true);
+      final navigator = Navigator.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Added ${questions.length} questions on "$topic" to your feed'),
+          action: SnackBarAction(
+            label: 'Practice',
+            onPressed: () {
+              ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
+              navigator.popUntil((route) => route.isFirst);
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Couldn\'t add to your feed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _addingToFeed = false);
+    }
   }
 
   // ── SUMMARY TAB ──────────────────────────────────────────────────────────
@@ -394,6 +474,13 @@ class _StudyMaterialScreenState extends State<StudyMaterialScreen> with SingleTi
               _quizSubmitted = false;
             }),
           ),
+        const SizedBox(height: 12),
+        AppButton.secondary(
+          label: _addedToFeed ? 'Added to your feed' : 'Add these questions to my feed',
+          icon: _addedToFeed ? Icons.check_rounded : Icons.playlist_add_rounded,
+          loading: _addingToFeed,
+          onPressed: _addedToFeed || _addingToFeed ? null : _addToFeed,
+        ),
         const SizedBox(height: 40),
       ],
     );

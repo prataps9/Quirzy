@@ -112,7 +112,7 @@ class LongPressMenuSheet extends ConsumerWidget {
               subtitle: 'Wrong answer key, typo, or bad question',
               onTap: () {
                 controller.reportQuestion(question.id);
-                notify('Reported — removed from your feed.');
+                notify('Removed from your feed. Thanks for flagging it.');
               },
             ),
           ],

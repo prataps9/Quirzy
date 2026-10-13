@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,7 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
-import '../../../shared/services/smart_notification_service.dart';
+import '../../../shared/services/notification_scheduler.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../content/providers/content_providers.dart';
@@ -15,11 +17,12 @@ import '../../content/screens/add_questions_screen.dart';
 import '../../content/screens/study_material_entry_screen.dart';
 import '../../content/screens/study_notes_screen.dart';
 import '../../feed/providers/feed_providers.dart';
+import '../../feed/services/leaderboard_sync.dart';
 import '../../feed/services/practice_content_service.dart';
-import '../../feed/services/streak_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../onboarding/screens/exam_selection_screen.dart';
-import '../../subscription/screens/subscription_screen.dart';
+import '../../subscription/services/usage_limits.dart';
+import '../../subscription/widgets/limit_sheet.dart';
 import '../providers/home_stats_provider.dart';
 import '../widgets/home_widgets.dart';
 import '../widgets/topic_stories_row.dart';
@@ -38,7 +41,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   final TextEditingController _topicController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
-  String _userName = 'Practice Champ';
+  String _userName = '';
   String? _photoUrl;
 
   late stt.SpeechToText _speech;
@@ -63,35 +66,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     super.dispose();
   }
 
+  /// Reschedules every reminder from fresh data and pushes the latest
+  /// score to the leaderboard. Both are fire-and-forget and never throw.
   Future<void> _onAppOpen() async {
-    final svc = SmartNotificationService();
-    // Cancel re-engagement — user is active
-    await svc.cancelReEngagement();
-    // Schedule re-engagement in case user doesn't come back
-    await svc.scheduleReEngagement();
-
-    final statsService = ref.read(feedStatsServiceProvider);
-    final revisionService = ref.read(feedRevisionServiceProvider);
-
-    // Streak protection at 9 PM if not studied today (real feed activity).
-    final streak = await ref.read(streakServiceProvider).getStreak();
-    await svc.scheduleStreakProtection(
-      currentStreak: streak.current,
-      studiedToday: streak.practisedToday,
-    );
-
-    // Revision due (morning) — real Revision Vault due count.
-    final dueCount = await revisionService.getDueCount();
-    await svc.scheduleSrsReminder(dueCount: dueCount, studyHour: 9, studyMinute: 0);
-
-    // Weekly digest (Sunday) — real practice activity this week.
-    final weekCounts = await statsService.getDailyAnsweredCounts(days: 7);
-    final questionsThisWeek = weekCounts.fold<int>(0, (a, b) => a + b);
-    await svc.scheduleWeeklyDigest(
-      questionsThisWeek: questionsThisWeek,
-      flashcardsReviewed: 0,
-      bestStreak: streak.best,
-    );
+    unawaited(ref.read(leaderboardSyncProvider).syncNow());
+    await ref.read(notificationSchedulerProvider).onAppOpen();
   }
 
   Future<void> _loadUserData() async {
@@ -197,7 +176,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
 
   // --- TOPIC GENERATION FLOW ---
 
-  void _handleGenerate() {
+  Future<void> _handleGenerate() async {
     final localizations = AppLocalizations.of(context)!;
     final topic = _topicController.text.trim();
     if (topic.isEmpty) {
@@ -205,6 +184,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localizations.pleaseEnterTopic)));
       return;
     }
+    // Check the daily allowance up front so nobody configures a topic
+    // they can't generate.
+    if (!await ref.read(usageLimitsProvider.notifier).canUse(UsageKind.topic)) {
+      if (mounted) showLimitSheet(context, UsageKind.topic);
+      return;
+    }
+    if (!mounted) return;
     _showConfigSheet(topic);
   }
 
@@ -216,45 +202,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         topic: topic,
         onGenerate: (count, difficulty) {
           Navigator.pop(context); // Close sheet first
-
-          if (!AdService().isLimitReached()) {
-            AdService().incrementQuizCount();
-            _startGeneration(topic, count, difficulty);
-          } else {
-            AdService().showRewardedAd(
-              onRewardEarned: () {
-                if (mounted) _startGeneration(topic, count, difficulty);
-              },
-              onAdFailed: () {
-                if (mounted) _startGeneration(topic, count, difficulty);
-              },
-            );
-          }
+          _startGeneration(topic, count, difficulty);
         },
       ),
     );
   }
 
   Future<void> _startGeneration(String topic, int count, String difficulty) async {
-    // Check daily topic-generation limit before generating
-    final canGenerate = await ref.read(canGenerateTopicProvider.future);
-
-    if (!canGenerate) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Daily limit reached'),
-            content: const Text(
-              'You\'ve already generated 1 topic today. Come back tomorrow for your next free topic, '
-              'or upgrade to Pro for unlimited topics!',
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-            ],
-          ),
-        );
-      }
+    final usage = ref.read(usageLimitsProvider.notifier);
+    // Re-check in case the allowance ran out while the sheet was open.
+    if (!await usage.canUse(UsageKind.topic)) {
+      if (mounted) showLimitSheet(context, UsageKind.topic);
       return;
     }
 
@@ -287,10 +245,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         difficulty: difficulty.toLowerCase(),
       );
 
-      // Record daily generation usage after successful generation
+      // Only a successful generation counts against today's allowance.
+      await usage.record(UsageKind.topic);
+
       final quizId = result['quizId']?.toString() ?? result['id']?.toString() ?? '';
-      final generationLimitService = ref.read(generationLimitServiceProvider);
-      await generationLimitService.recordUsage(topicId: quizId, topic: topic);
 
       final quizTitle = result['title']?.toString() ?? topic;
       final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
@@ -346,6 +304,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     final stats = ref.watch(homeStatsProvider).value ?? const HomeStats();
     final selectedExam = ref.watch(examProvider);
     final examTopics = _examTopics(selectedExam);
+    final isPro = ref.watch(proStatusProvider).isPro;
 
     return Scaffold(
       body: SafeArea(
@@ -358,7 +317,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               greeting: _greeting(),
               stats: stats,
               onStreakTap: () => ref.read(tabIndexProvider.notifier).state = 2,
-              onProTap: () => _push(const SubscriptionScreen()),
+              showPro: !isPro,
+              onProTap: () => openPaywall(context),
             ),
             const TopicStoriesRow(),
             Padding(
@@ -497,6 +457,7 @@ class _HomeHeader extends StatelessWidget {
   final String greeting;
   final HomeStats stats;
   final VoidCallback onStreakTap;
+  final bool showPro;
   final VoidCallback onProTap;
 
   const _HomeHeader({
@@ -505,6 +466,7 @@ class _HomeHeader extends StatelessWidget {
     required this.greeting,
     required this.stats,
     required this.onStreakTap,
+    required this.showPro,
     required this.onProTap,
   });
 
@@ -512,8 +474,9 @@ class _HomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final text = Theme.of(context).textTheme;
-    final firstName = userName.trim().split(' ').first;
-    final initial = firstName.isEmpty ? '?' : firstName[0].toUpperCase();
+    final first = userName.trim().split(' ').first;
+    final firstName = first.isEmpty ? 'there' : first;
+    final initial = first.isEmpty ? 'Q' : first[0].toUpperCase();
     final flame = stats.streak > 0 && !stats.streakAtRisk ? p.streak : p.textMuted;
 
     return Padding(
@@ -542,21 +505,23 @@ class _HomeHeader extends StatelessWidget {
             color: flame,
             onTap: onStreakTap,
           ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: onProTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: p.accentText, width: 1.5),
-              ),
-              child: Text(
-                'PRO',
-                style: text.labelMedium!.copyWith(color: p.accentText, fontWeight: FontWeight.w800),
+          if (showPro) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onProTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: p.accentText, width: 1.5),
+                ),
+                child: Text(
+                  'PRO',
+                  style: text.labelMedium!.copyWith(color: p.accentText, fontWeight: FontWeight.w800),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
     );

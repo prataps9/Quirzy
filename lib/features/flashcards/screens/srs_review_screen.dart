@@ -1,11 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../services/flashcard_prefs.dart';
 import '../services/srs_service.dart';
 
-class SrsReviewScreen extends StatefulWidget {
+class SrsReviewScreen extends ConsumerStatefulWidget {
   final String setId;
   final String title;
   final List<Map<String, dynamic>> cards;
@@ -20,10 +22,10 @@ class SrsReviewScreen extends StatefulWidget {
   });
 
   @override
-  State<SrsReviewScreen> createState() => _SrsReviewScreenState();
+  ConsumerState<SrsReviewScreen> createState() => _SrsReviewScreenState();
 }
 
-class _SrsReviewScreenState extends State<SrsReviewScreen>
+class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
     with TickerProviderStateMixin {
   final SrsService _srs = SrsService();
 
@@ -42,6 +44,10 @@ class _SrsReviewScreenState extends State<SrsReviewScreen>
   void initState() {
     super.initState();
     _queue = List.from(widget.dueIndices)..shuffle(Random());
+    final setId = widget.setId;
+    Future.microtask(
+      () => ref.read(flashcardPrefsProvider.notifier).markStudied(setId),
+    );
 
     _flipCtrl = AnimationController(
       vsync: this,

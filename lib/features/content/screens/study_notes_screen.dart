@@ -6,6 +6,8 @@ import '../../feed/services/practice_content_service.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../home/widgets/home_widgets.dart';
+import '../../subscription/services/usage_limits.dart';
+import '../../subscription/widgets/limit_sheet.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 
@@ -37,6 +39,13 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
       return;
     }
 
+    // Notes generation is an AI topic, so it shares the topic allowance.
+    final usage = ref.read(usageLimitsProvider.notifier);
+    if (!await usage.canUse(UsageKind.topic)) {
+      if (mounted) showLimitSheet(context, UsageKind.topic);
+      return;
+    }
+
     final isOnline = await ref.read(connectivityServiceProvider).checkIsOnline();
     if (!isOnline) {
       if (mounted) {
@@ -44,6 +53,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
       }
       return;
     }
+    if (!mounted) return;
 
     Navigator.push(
       context,
@@ -57,6 +67,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
         questionCount: _questionCount,
         difficulty: _difficulty,
       );
+      await usage.record(UsageKind.topic);
 
       final quizTitle = result['title']?.toString() ?? 'Study Notes';
       final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);

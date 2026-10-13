@@ -8,6 +8,8 @@ import 'package:quirzy/features/feed/screens/feed_screen.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/side_effect_fakes.dart';
+
 PracticeQuestion _q(String topic, int n, {bool long = false}) {
   final text = long
       ? 'In a long-form $topic question number $n, which of the following '
@@ -38,6 +40,7 @@ Future<void> _pumpFeed(WidgetTester tester, List<PracticeQuestion> pool) async {
     ProviderScope(
       overrides: [
         feedQuestionPoolProvider.overrideWith((ref) async => pool),
+        ...sideEffectOverrides(),
         isOnlineProvider.overrideWith((ref) => Stream.value(true)),
       ],
       child: const MaterialApp(home: FeedScreen()),

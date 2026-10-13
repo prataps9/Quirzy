@@ -3,12 +3,15 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/subscription/services/pro_status.dart';
+
 /// Wipes everything this device remembers about the signed-in user — the
-/// practice feed, XP, streak counters, Pro, flashcard progress, exam choice
-/// and scheduled reminders — so the next account starts clean. Device-level
-/// preferences in [keep] (the theme) survive.
+/// practice feed, XP, streak counters, flashcard progress, exam choice and
+/// scheduled reminders — so the next account starts clean. The theme and
+/// the purchased Pro plan survive ([keep]); Pro only applies again when the
+/// account that bought it signs back in.
 class LocalDataReset {
-  static const keep = {'theme_mode'};
+  static const keep = {'theme_mode', ...ProStatusStore.keys};
 
   static Future<void> wipe() async {
     final prefs = await SharedPreferences.getInstance();

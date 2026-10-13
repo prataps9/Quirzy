@@ -1,14 +1,10 @@
 class AppRoutes {
   static const String initial = '/';
   static const String auth = '/auth';
-  static const String login = '/login';
-  static const String signup = '/signup';
   static const String success = '/success';
   static const String home = '/home';
   static const String profile = '/profile';
-  static const String settings = '/settings';
   static const String flashcards = '/flashcards';
-  static const String apiKeySettings = '/api-key-settings';
   static const String studyNotes = '/study-notes';
   static const String customQuizCreator = '/custom-quiz-creator';
   static const String studyMaterialEntry = '/study-material-entry';

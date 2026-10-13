@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../shared/providers/exam_provider.dart';
+import '../../../shared/services/notification_scheduler.dart';
 import '../../../shared/services/smart_notification_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../progress/widgets/exam_date_card.dart';
 
-class NotificationSettingsScreen extends StatefulWidget {
+class NotificationSettingsScreen extends ConsumerStatefulWidget {
   const NotificationSettingsScreen({super.key});
 
   @override
-  State<NotificationSettingsScreen> createState() =>
+  ConsumerState<NotificationSettingsScreen> createState() =>
       _NotificationSettingsScreenState();
 }
 
 class _NotificationSettingsScreenState
-    extends State<NotificationSettingsScreen> {
+    extends ConsumerState<NotificationSettingsScreen> {
   final _svc = SmartNotificationService();
   bool _loading = true;
   Map<String, bool> _prefs = {};
@@ -42,11 +46,17 @@ class _NotificationSettingsScreenState
     HapticFeedback.lightImpact();
     setState(() => _prefs[key] = value);
     await _svc.setChannelPref(key, value);
+    if (!value) return;
 
-    // Re-schedule study time when turned back on
-    if (key == 'notif_study_time' && value) {
-      await _svc.scheduleStudyTimeReminder(
-          hour: _studyHour, minute: _studyMinute);
+    // Turned on: ask for permission if needed and schedule it right away.
+    final scheduler = ref.read(notificationSchedulerProvider);
+    await _svc.requestPermission();
+    await scheduler.reschedule(key);
+
+    if (key == NotificationScheduler.examCountdown &&
+        ref.read(examDateProvider).value == null &&
+        mounted) {
+      await pickExamDate(context, ref);
     }
   }
 
@@ -62,6 +72,7 @@ class _NotificationSettingsScreenState
       _studyMinute = picked.minute;
       _prefs['notif_study_time'] = true;
     });
+    await _svc.setChannelPref('notif_study_time', true);
     await _svc.scheduleStudyTimeReminder(
         hour: picked.hour, minute: picked.minute);
   }
@@ -77,6 +88,7 @@ class _NotificationSettingsScreenState
   Widget build(BuildContext context) {
     final p = context.palette;
     final t = Theme.of(context).textTheme;
+    final examDate = ref.watch(examDateProvider).value;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications')),
@@ -86,8 +98,8 @@ class _NotificationSettingsScreenState
               padding: const EdgeInsets.all(20),
               children: [
                 _header(
-                  'What other apps miss',
-                  'Most apps send hourly spam. ExamAI sends only what matters.',
+                  'Only what matters',
+                  'Quirzy sends a few useful reminders, never hourly spam.',
                 ),
 
                 _section('Revision', [
@@ -114,9 +126,14 @@ class _NotificationSettingsScreenState
                     icon: Icons.calendar_today_rounded,
                     iconColor: p.success,
                     title: 'Exam Countdown',
-                    subtitle: 'Weekly tip with days left to your target exam',
+                    subtitle: examDate == null
+                        ? 'Weekly days-left reminder. Needs your exam date.'
+                        : 'Sunday morning reminder of the days left to ${examDisplayName(ref.watch(examProvider))}',
                     prefKey: 'notif_exam_countdown',
                   ),
+                  if (examDate == null &&
+                      _prefs['notif_exam_countdown'] == true)
+                    _examDatePrompt(),
                 ]),
 
                 _section('Progress & Insights', [
@@ -258,6 +275,37 @@ class _NotificationSettingsScreenState
               value: enabled,
               onChanged: (val) => _toggle(prefKey, val),
               activeTrackColor: p.accent,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _examDatePrompt() {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: AppCard(
+        color: p.accentSoft,
+        borderColor: p.accentText.withValues(alpha: 0.3),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        onTap: () => pickExamDate(context, ref),
+        child: Row(
+          children: [
+            Icon(Icons.event_rounded, color: p.accentText, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Add your exam date to get the countdown',
+                  style: t.titleSmall),
+            ),
+            Text(
+              'Set date',
+              style: t.labelMedium!.copyWith(
+                fontWeight: FontWeight.w800,
+                color: p.accentText,
+              ),
             ),
           ],
         ),

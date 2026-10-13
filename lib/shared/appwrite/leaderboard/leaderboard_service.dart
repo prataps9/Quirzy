@@ -61,6 +61,22 @@ class LeaderboardService {
     }
   }
 
+  /// Removes [userId]'s row from the board (on account deletion).
+  Future<void> removeEntry(String userId) async {
+    final existing = await _db.listDocuments(
+      databaseId: AppwriteConfig.databaseId,
+      collectionId: AppwriteConfig.leaderboardCollection,
+      queries: [Query.equal('userId', userId)],
+    );
+    for (final doc in existing.documents) {
+      await _db.deleteDocument(
+        databaseId: AppwriteConfig.databaseId,
+        collectionId: AppwriteConfig.leaderboardCollection,
+        documentId: doc.$id,
+      );
+    }
+  }
+
   /// Get top players
   Future<List<Map<String, dynamic>>> getTopPlayers({int limit = 50}) async {
     try {
@@ -94,18 +110,18 @@ class LeaderboardService {
       }
 
       final userDoc = result.documents.first;
-      final userXP = userDoc.data['totalXP'] as int;
+      final userXP = (userDoc.data['totalXP'] as num?)?.toInt() ?? 0;
 
-      // Calculate rank position
-      final allPlayers = await _db.listDocuments(
+      // Rank = players with strictly more XP + 1. Only the count is needed.
+      final ahead = await _db.listDocuments(
         databaseId: AppwriteConfig.databaseId,
         collectionId: AppwriteConfig.leaderboardCollection,
-        queries: [Query.orderDesc('totalXP')],
+        queries: [
+          Query.greaterThan('totalXP', userXP),
+          Query.limit(1),
+        ],
       );
-
-      final position = allPlayers.documents.indexWhere(
-        (doc) => doc.$id == userDoc.$id,
-      ) + 1;
+      final position = ahead.total + 1;
 
       return {
         'position': position,

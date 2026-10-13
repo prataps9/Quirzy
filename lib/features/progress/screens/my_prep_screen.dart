@@ -10,6 +10,7 @@ import '../../feed/providers/feed_providers.dart';
 import '../../profile/screens/leaderboard_screen.dart';
 import '../providers/progress_providers.dart';
 import '../services/share_card_service.dart';
+import '../widgets/exam_date_card.dart';
 import '../widgets/share_card.dart';
 
 /// My Prep: the progress dashboard — streak, XP level, daily target, a
@@ -41,6 +42,8 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
               _StreakCard(stats: stats),
+              const SizedBox(height: 12),
+              const ExamDateCard(),
               const SizedBox(height: 12),
               _LevelCard(stats: stats),
               const SizedBox(height: 12),
@@ -151,14 +154,14 @@ class _StreakCard extends StatelessWidget {
                   children: [
                     Text('${stats.streak}', style: text.displaySmall),
                     const SizedBox(width: 6),
-                    Text(stats.streak == 1 ? 'day streak' : 'day streak', style: text.titleSmall),
+                    Text('day streak', style: text.titleSmall),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(status, style: text.bodySmall),
                 if (stats.bestStreak > stats.streak) ...[
                   const SizedBox(height: 2),
-                  Text('Best: ${stats.bestStreak} days', style: text.bodySmall),
+                  Text(stats.bestStreak == 1 ? 'Best: 1 day' : 'Best: ${stats.bestStreak} days', style: text.bodySmall),
                 ],
               ],
             ),

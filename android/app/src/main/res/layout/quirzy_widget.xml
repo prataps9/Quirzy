@@ -42,7 +42,7 @@
                 android:id="@+id/widget_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Ready to learn?"
+                android:text="Keep your streak going"
                 android:textColor="@color/widget_text_secondary"
                 android:textSize="12sp" />
 
@@ -50,20 +50,9 @@
 
     </LinearLayout>
 
-    <!-- Motivational Quote -->
-    <TextView
-        android:id="@+id/widget_quote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/header_row"
-        android:layout_marginTop="12dp"
-        android:text="🧠 Challenge yourself today!"
-        android:textColor="@color/widget_text"
-        android:textSize="14sp" />
-
-    <!-- Start Quiz Button -->
+    <!-- Practice button -->
     <LinearLayout
-        android:id="@+id/start_quiz_button"
+        android:id="@+id/practice_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
@@ -76,7 +65,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="▶  Start Quiz"
+            android:text="Practice now"
             android:textColor="@color/widget_on_accent"
             android:textSize="14sp"
             android:textStyle="bold" />

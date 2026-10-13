@@ -77,6 +77,17 @@ void main() {
       expect(status.plan, ProPlan.yearly);
     });
 
+    test('Pro only applies to the account that bought it', () async {
+      var user = 'alice';
+      final store = ProStatusStore(clock: clock, currentUserId: () async => user);
+      await store.activate(ProPlan.monthly);
+      expect((await store.load()).isPro, isTrue);
+      user = 'bob';
+      expect((await store.load()).isPro, isFalse);
+      user = 'alice';
+      expect((await store.load()).isPro, isTrue);
+    });
+
     test('legacy is_pro without a date is not Pro', () async {
       SharedPreferences.setMockInitialValues({'is_pro': true});
       expect((await ProStatusStore(clock: clock).load()).isPro, isFalse);

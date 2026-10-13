@@ -12,9 +12,6 @@ class SettingsService extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.dark;
   ThemeMode get themeMode => _themeMode;
 
-  bool _notificationsEnabled = true;
-  bool get notificationsEnabled => _notificationsEnabled;
-
   /// This is a process-wide singleton, so a provider tearing down its scope
   /// must not dispose it for everyone else — hence no `super.dispose()`.
   @override
@@ -42,12 +39,5 @@ class SettingsService extends ChangeNotifier {
     _themeMode = mode;
     notifyListeners();
     SharedPreferences.getInstance().then((prefs) => prefs.setString(_themeKey, mode.name));
-  }
-
-  void toggleNotifications(bool enabled) {
-    if (_notificationsEnabled != enabled) {
-      _notificationsEnabled = enabled;
-      notifyListeners();
-    }
   }
 }

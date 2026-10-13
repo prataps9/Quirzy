@@ -9,18 +9,18 @@ class AppLocalizationsHi extends AppLocalizations {
   AppLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
-  String get welcomeTitle => 'Quirzy के साथ\nअपनी क्षमता को अनलॉक करें';
+  String get welcomeTitle => 'AI के साथ\nपरीक्षा क्रैक करें';
 
   @override
   String get welcomeSubtitle =>
-      'स्मार्ट, एआई-जनरेटेड क्विज़ के साथ किसी भी विषय में महारत हासिल करें जो केवल आपके लिए बनाए गए हैं।';
+      'JEE, NEET, CAT, GRE और अधिक के लिए अभ्यास प्रश्न, फ्लैशकार्ड और स्टडी सेट।';
 
   @override
   String get continueWithGoogle => 'Google के साथ जारी रखें';
 
   @override
   String get acceptPrivacy =>
-      'कृपया जारी रखने के लिए गोपनीयता नीति स्वीकार करें';
+      'कृपया जारी रखने के लिए गोपनीयता नीति और शर्तें स्वीकार करें';
 
   @override
   String get required => 'आवश्यक';
@@ -89,10 +89,10 @@ class AppLocalizationsHi extends AppLocalizations {
   String get freeLabel => 'मुफ्त';
 
   @override
-  String get homeTitle1 => 'आज आप क्या\n';
+  String get homeTitle1 => 'स्मार्ट तैयारी,\n';
 
   @override
-  String get homeTitle2 => 'सीखना चाहते हैं?';
+  String get homeTitle2 => 'बेहतर स्कोर।';
 
   @override
   String get actionAIGen => 'एआई जनरेट';

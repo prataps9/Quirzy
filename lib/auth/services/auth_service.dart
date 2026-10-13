@@ -144,6 +144,10 @@ class AuthService {
         }
         return user;
       } on AppwriteException catch (e) {
+        // A deleted account is blocked, not removed — don't try to recreate it.
+        if (e.type == 'user_blocked') {
+          throw AppwriteException('This account has been deleted.', e.code, e.type);
+        }
         // User doesn't exist or wrong password - try to create account
         debugPrint(
           'AuthService: Login failed (${e.code}), creating new account...',
@@ -202,7 +206,7 @@ class AuthService {
             if (createError.code == 409) {
               debugPrint('AuthService: Account exists but password mismatch');
               throw Exception(
-                'Account already exists. Please use email/password login.',
+                'An account with this email already exists but could not be signed in.',
               );
             }
             rethrow;

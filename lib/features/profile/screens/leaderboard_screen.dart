@@ -1,31 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../shared/appwrite/leaderboard/leaderboard_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../feed/services/leaderboard_sync.dart';
 
-/// Leaderboard Screen - Global rankings and competition
-class LeaderboardScreen extends StatefulWidget {
+/// Leaderboard Screen - one global ranking by lifetime XP.
+class LeaderboardScreen extends ConsumerStatefulWidget {
   const LeaderboardScreen({super.key});
 
   @override
-  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+  ConsumerState<LeaderboardScreen> createState() => _LeaderboardScreenState();
 }
 
-class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTickerProviderStateMixin {
+class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   final _leaderboardService = LeaderboardService();
   final _storage = const FlutterSecureStorage();
-  
+
   List<Map<String, dynamic>> _topPlayers = [];
   Map<String, dynamic> _userRank = {};
+  String _userId = '';
   bool _isLoading = true;
-  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadLeaderboard();
   }
 
@@ -33,6 +34,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
     setState(() => _isLoading = true);
 
     try {
+      // Push this device's latest XP first so the user sees themselves
+      // where they actually are. Offline-safe: failures are swallowed.
+      await ref.read(leaderboardSyncProvider).syncNow();
+
       final topPlayers = await _leaderboardService.getTopPlayers(limit: 50);
       final userId = await _storage.read(key: 'user_id') ?? '';
       final userRank = userId.isNotEmpty
@@ -42,6 +47,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
       if (mounted) {
         setState(() {
           _topPlayers = topPlayers;
+          _userId = userId;
           _userRank = Map<String, dynamic>.from(userRank);
           _isLoading = false;
         });
@@ -54,52 +60,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
   }
 
   @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final t = Theme.of(context).textTheme;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Leaderboard'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: p.surface,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                border: Border.all(color: p.border),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  color: p.accent,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                indicatorSize: TabBarIndicatorSize.tab,
-                dividerColor: Colors.transparent,
-                overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-                labelColor: p.onAccent,
-                unselectedLabelColor: p.textMuted,
-                labelStyle: t.labelLarge,
-                unselectedLabelStyle: t.labelLarge,
-                tabs: const [
-                  Tab(height: 38, child: _TabLabel(Icons.public, 'Global')),
-                  Tab(height: 38, child: _TabLabel(Icons.people, 'Friends')),
-                ],
-              ),
-            ),
-          ),
-        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -109,12 +73,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabController,
-              children: [
-                _buildGlobalLeaderboard(),
-                _buildFriendsLeaderboard(),
-              ],
+          : RefreshIndicator(
+              onRefresh: _loadLeaderboard,
+              child: _buildGlobalLeaderboard(),
             ),
     );
   }
@@ -124,76 +85,52 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
     final t = Theme.of(context).textTheme;
 
     if (_topPlayers.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.leaderboard, size: 64, color: p.textMuted),
-            const SizedBox(height: 16),
-            Text('No rankings yet', style: t.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              'Start practicing to climb the leaderboard!',
-              style: t.bodyMedium!.copyWith(color: p.textMuted),
-            ),
-          ],
-        ),
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(32, 120, 32, 32),
+        children: [
+          Icon(Icons.leaderboard, size: 64, color: p.textMuted),
+          const SizedBox(height: 16),
+          Text('No rankings yet', style: t.titleLarge, textAlign: TextAlign.center),
+          const SizedBox(height: 8),
+          Text(
+            'Answer a question to join the board.',
+            textAlign: TextAlign.center,
+            style: t.bodyMedium!.copyWith(color: p.textMuted),
+          ),
+        ],
       );
     }
 
+    final position = _userRank['position'] as int? ?? -1;
+    final showOwnRow = position > _topPlayers.length;
+
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
-      itemCount: _topPlayers.length + (_userRank.isNotEmpty ? 1 : 0),
+      itemCount: _topPlayers.length + (showOwnRow ? 1 : 0),
       itemBuilder: (context, index) {
-        // Show user's rank at the bottom if not in top list
+        // The user's own row at the bottom when they are outside the top list.
         if (index == _topPlayers.length) {
-          final position = _userRank['position'] as int? ?? -1;
-          if (position > _topPlayers.length) {
-            return _buildPlayerCard(
-              position: position,
-              userName: 'You',
-              totalXP: _userRank['totalXP'] as int? ?? 0,
-              rank: _userRank['rank'] as String? ?? 'Unranked',
-              isCurrentUser: true,
-            );
-          }
-          return const SizedBox.shrink();
+          return _buildPlayerCard(
+            position: position,
+            userName: 'You',
+            totalXP: (_userRank['totalXP'] as num?)?.toInt() ?? 0,
+            rank: _userRank['rank'] as String? ?? 'Unranked',
+            isCurrentUser: true,
+          );
         }
 
         final player = _topPlayers[index];
+        final isMe = _userId.isNotEmpty && player['userId'] == _userId;
         return _buildPlayerCard(
           position: index + 1,
-          userName: player['userName'] ?? 'Unknown',
-          totalXP: player['totalXP'] as int? ?? 0,
+          userName: isMe ? '${player['userName'] ?? 'You'} (you)' : (player['userName'] ?? 'Unknown'),
+          totalXP: (player['totalXP'] as num?)?.toInt() ?? 0,
           rank: player['rank'] as String? ?? 'Unranked',
-          isCurrentUser: false,
+          isCurrentUser: isMe,
         ).animate().fadeIn(duration: 200.ms);
       },
-    );
-  }
-
-  Widget _buildFriendsLeaderboard() {
-    final p = context.palette;
-    final t = Theme.of(context).textTheme;
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people_outline, size: 64, color: p.textMuted),
-          const SizedBox(height: 16),
-          Text('Friends Coming Soon!', style: t.titleLarge),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              'Add friends to compete with them!',
-              textAlign: TextAlign.center,
-              style: t.bodyMedium!.copyWith(color: p.textMuted),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -277,25 +214,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> with SingleTicker
           ],
         ),
       ),
-    );
-  }
-}
-
-class _TabLabel extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _TabLabel(this.icon, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 18),
-        const SizedBox(width: 6),
-        Text(label),
-      ],
     );
   }
 }

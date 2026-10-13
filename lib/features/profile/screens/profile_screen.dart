@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../config/app_constants.dart';
 import '../../../routes/app_routes.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/app_review_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/widgets/app_restart_scope.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../feed/services/streak_service.dart';
 import '../../feed/services/xp_service.dart';
+import '../../subscription/services/usage_limits.dart';
+import '../../subscription/widgets/limit_sheet.dart';
+import 'privacy_policy_screen.dart';
 
 /// Profile: who you are, your streak and level, appearance, and the
 /// handful of settings that actually do something.
@@ -27,33 +33,10 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
   @override
   bool get wantKeepAlive => true;
 
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  bool _loggingOut = false;
+  bool _deleting = false;
 
-  String _userName = 'Practice Champ';
-  String _userEmail = 'user@quirzy.com';
-  String? _photoUrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadUserData();
-  }
-
-  Future<void> _loadUserData() async {
-    try {
-      final name = await _storage.read(key: 'user_name');
-      final email = await _storage.read(key: 'user_email');
-      final photoUrl = await _storage.read(key: 'user_photo_url');
-      if (!mounted) return;
-      setState(() {
-        _userName = name?.isNotEmpty == true ? name! : 'Practice Champ';
-        _userEmail = email?.isNotEmpty == true ? email! : 'user@quirzy.com';
-        _photoUrl = photoUrl;
-      });
-    } catch (_) {
-      // Keep the defaults if secure storage is unavailable.
-    }
-  }
+  bool get _busy => _loggingOut || _deleting;
 
   @override
   Widget build(BuildContext context) {
@@ -61,9 +44,14 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
     final p = context.palette;
     final text = Theme.of(context).textTheme;
     final settings = ref.watch(settingsProvider);
+    final user = ref.watch(authProvider).value;
+    final pro = ref.watch(proStatusProvider);
     final streak = ref.watch(streakProvider).value ?? StreakInfo.none;
     final level = XpLevel.fromTotal(ref.watch(xpTotalProvider).value ?? 0);
     final totalXp = ref.watch(xpTotalProvider).value ?? 0;
+
+    final name = user?.name.trim() ?? '';
+    final email = user?.email.trim() ?? '';
 
     return Scaffold(
       body: SafeArea(
@@ -73,7 +61,11 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
           children: [
             Text('Profile', style: text.headlineMedium),
             const SizedBox(height: 20),
-            _ProfileHeader(name: _userName, email: _userEmail, photoUrl: _photoUrl),
+            _ProfileHeader(
+              name: name.isEmpty ? 'You' : name,
+              email: email,
+              photoUrl: user?.photoUrl,
+            ),
             const SizedBox(height: 20),
             Row(
               children: [
@@ -96,6 +88,26 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
                     unit: 'XP',
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _SettingsGroup(
+              children: [
+                pro.isPro
+                    ? _SettingsRow(
+                        icon: Icons.workspace_premium_rounded,
+                        title: 'Quirzy Pro',
+                        subtitle: pro.expiresAt == null
+                            ? 'Active'
+                            : 'Active until ${DateFormat('d MMM yyyy').format(pro.expiresAt!)}',
+                        onTap: () => openPaywall(context),
+                      )
+                    : _SettingsRow(
+                        icon: Icons.workspace_premium_rounded,
+                        title: 'Go Pro',
+                        subtitle: 'Unlimited practice, flashcards and study sets',
+                        onTap: () => openPaywall(context),
+                      ),
               ],
             ),
             const SizedBox(height: 24),
@@ -136,12 +148,6 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
                   onTap: () => context.push(AppRoutes.notificationSettings),
                 ),
                 _SettingsRow(
-                  icon: Icons.key_rounded,
-                  title: 'API key',
-                  subtitle: 'Use your own Gemini API key',
-                  onTap: () => context.push(AppRoutes.apiKeySettings),
-                ),
-                _SettingsRow(
                   icon: Icons.star_outline_rounded,
                   title: 'Rate Quirzy',
                   subtitle: 'Enjoying the app? Tell us on the Play Store',
@@ -150,10 +156,48 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
               ],
             ),
             const SizedBox(height: 24),
+            _GroupTitle('About'),
+            _SettingsGroup(
+              children: [
+                _SettingsRow(
+                  icon: Icons.shield_outlined,
+                  title: 'Privacy policy',
+                  subtitle: 'What we store and where',
+                  onTap: () => _open(const PrivacyPolicyScreen()),
+                ),
+                _SettingsRow(
+                  icon: Icons.description_outlined,
+                  title: 'Terms of use',
+                  subtitle: 'The rules for using Quirzy',
+                  onTap: () => _open(const TermsScreen()),
+                ),
+                _SettingsRow(
+                  icon: Icons.mail_outline_rounded,
+                  title: 'Contact support',
+                  subtitle: AppConstants.supportEmail,
+                  onTap: _contactSupport,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             AppButton.secondary(
               label: 'Log out',
               icon: Icons.logout_rounded,
-              onPressed: _showLogoutDialog,
+              loading: _loggingOut,
+              onPressed: _busy ? null : _confirmLogout,
+            ),
+            const SizedBox(height: 12),
+            _SettingsGroup(
+              children: [
+                _SettingsRow(
+                  icon: Icons.delete_outline_rounded,
+                  title: 'Delete account',
+                  subtitle: 'Permanently close your Quirzy account',
+                  danger: true,
+                  loading: _deleting,
+                  onTap: _busy ? null : _confirmDeleteAccount,
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Center(child: Text('Quirzy 2.1.2', style: text.bodySmall)),
@@ -163,49 +207,122 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
     );
   }
 
+  void _open(Widget screen) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
   Future<void> _rateApp() async {
     try {
-      await AppReviewService.showReviewDialog(context);
-    } catch (e) {
-      try {
-        final success = await AppReviewService().openStoreListing();
-        if (!success && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Unable to open Play Store')),
-          );
-        }
-      } catch (e2) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e2')));
-        }
-      }
+      await AppReviewService.rate();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the Play Store")),
+      );
     }
   }
 
-  void _showLogoutDialog() {
-    HapticFeedback.mediumImpact();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Log out?'),
-        content: const Text('Are you sure you want to log out of your account?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () async {
-              // Store references before the async gap.
-              final navigator = Navigator.of(context);
-              final router = GoRouter.of(context);
+  Future<void> _contactSupport() async {
+    final uri = Uri.parse(
+      'mailto:${AppConstants.supportEmail}?subject=${Uri.encodeComponent('Quirzy support')}',
+    );
+    var opened = false;
+    try {
+      opened = await launchUrl(uri);
+    } catch (_) {}
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No email app found. Write to ${AppConstants.supportEmail}')),
+      );
+    }
+  }
 
-              navigator.pop(); // Close dialog
-              await ref.read(authProvider.notifier).logout();
-              router.go(AppRoutes.auth);
-            },
+  Future<void> _confirmLogout() async {
+    HapticFeedback.mediumImpact();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text(
+          'Your practice progress, XP, streak and settings on this phone will be cleared.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
             child: Text('Log out', style: TextStyle(color: context.palette.danger)),
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+
+    // Grab everything that needs this widget before the async gap: once auth
+    // flips to signed-out the router leaves this screen and disposes it.
+    final router = GoRouter.of(context);
+    final auth = ref.read(authProvider.notifier);
+    setState(() => _loggingOut = true);
+    await auth.logout();
+    _restartSignedOut(router);
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    HapticFeedback.mediumImpact();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete your account?'),
+        content: const Text(
+          'This deletes your Quirzy profile and closes your account, so you '
+          "won't be able to sign in with it again. Your practice progress, XP, "
+          'streak and settings on this phone are erased too.\n\n'
+          "This can't be undone.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text('Delete', style: TextStyle(color: context.palette.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final router = GoRouter.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final auth = ref.read(authProvider.notifier);
+    setState(() => _deleting = true);
+    try {
+      await auth.deleteAccount();
+    } catch (e) {
+      debugPrint('Profile: delete account failed: $e');
+      if (mounted) setState(() => _deleting = false);
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text("Couldn't delete your account. Check your connection and try again."),
+        ),
+      );
+      return;
+    }
+    _restartSignedOut(router);
+  }
+
+  /// Sends the user to sign-in and rebuilds every provider from scratch so
+  /// nothing from the old account stays in memory. Uses the router's own
+  /// navigator context, which outlives this (by now possibly disposed) screen.
+  static void _restartSignedOut(GoRouter router) {
+    router.go(AppRoutes.auth);
+    final rootContext = router.routerDelegate.navigatorKey.currentContext;
+    if (rootContext != null && rootContext.mounted) {
+      AppRestartScope.restart(rootContext);
+    }
   }
 }
 
@@ -237,8 +354,10 @@ class _ProfileHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(firstName, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.headlineSmall),
-              const SizedBox(height: 2),
-              Text(email, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.bodySmall),
+              if (email.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(email, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.bodySmall),
+              ],
             ],
           ),
         ),
@@ -345,24 +464,31 @@ class _SettingsRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool danger;
+  final bool loading;
 
   const _SettingsRow({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.danger = false,
+    this.loading = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final text = Theme.of(context).textTheme;
+    final tint = danger ? p.danger : p.accentText;
     return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
+      onTap: onTap == null
+          ? null
+          : () {
+              HapticFeedback.lightImpact();
+              onTap!();
+            },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
@@ -370,20 +496,30 @@ class _SettingsRow extends StatelessWidget {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(color: p.accentSoft, shape: BoxShape.circle),
-              child: Icon(icon, color: p.accentText, size: 20),
+              decoration: BoxDecoration(
+                color: danger ? p.dangerSoft : p.accentSoft,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: tint, size: 20),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: text.titleSmall),
+                  Text(title, style: danger ? text.titleSmall!.copyWith(color: p.danger) : text.titleSmall),
                   Text(subtitle, style: text.bodySmall),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: p.textMuted),
+            if (loading)
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: tint),
+              )
+            else
+              Icon(Icons.chevron_right_rounded, color: p.textMuted),
           ],
         ),
       ),

@@ -9,17 +9,18 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get welcomeTitle => 'Unlock your potential\nwith Quirzy';
+  String get welcomeTitle => 'Crack your exam\nwith AI';
 
   @override
   String get welcomeSubtitle =>
-      'Master any subject with smart, AI-generated quizzes tailored just for you.';
+      'Practice questions, flashcards and study sets for JEE, NEET, CAT, GRE and more.';
 
   @override
   String get continueWithGoogle => 'Continue with Google';
 
   @override
-  String get acceptPrivacy => 'Please accept the Privacy Policy to continue';
+  String get acceptPrivacy =>
+      'Please accept the Privacy Policy and Terms to continue';
 
   @override
   String get required => 'Required';
@@ -88,10 +89,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get freeLabel => 'Free';
 
   @override
-  String get homeTitle1 => 'What do you want to\n';
+  String get homeTitle1 => 'Prepare smarter,\n';
 
   @override
-  String get homeTitle2 => 'learn today?';
+  String get homeTitle2 => 'score higher.';
 
   @override
   String get actionAIGen => 'AI Gen';

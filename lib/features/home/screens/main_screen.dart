@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/providers/providers.dart';
+import '../../../shared/services/notification_scheduler.dart';
 import 'home_screen.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/screens/feed_screen.dart';
@@ -38,6 +39,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         ).push(MaterialPageRoute(builder: (_) => const ExamSelectionScreen()));
       }
     }
+    // Ask for notification permission once, after onboarding rather than
+    // on a cold first frame, so reminders can actually be delivered.
+    if (mounted) await ref.read(notificationSchedulerProvider).requestPermissionOnce();
   }
 
   // Screens list — Practice (the ScrollPrep-style feed) is the default tab.

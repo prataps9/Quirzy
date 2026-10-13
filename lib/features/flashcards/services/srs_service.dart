@@ -111,6 +111,13 @@ class SrsService {
     return card;
   }
 
+  /// Forgets the review schedule of every card in [setId] (after deleting it).
+  Future<void> removeSet(String setId) async {
+    final cards = await _loadAll();
+    cards.removeWhere((key, _) => key.startsWith('${setId}_'));
+    await _saveAll(cards);
+  }
+
   /// Returns indices of cards due for review today (new cards are always due).
   Future<List<int>> getDueIndices(String setId, int totalCards) async {
     final cards = await _loadAll();

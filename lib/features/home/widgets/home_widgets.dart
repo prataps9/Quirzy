@@ -1,63 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../l10n/app_localizations.dart';
-
-/// AdService - Manages ad display and free quiz limits
-class AdService {
-  static AdService? _instance;
-  static const int _freeQuizLimit = 3;
-  int _quizCount = 0;
-  bool _initialized = false;
-
-  factory AdService() {
-    _instance ??= AdService._internal();
-    return _instance!;
-  }
-
-  AdService._internal();
-
-  Future<void> initialize() async {
-    if (_initialized) return;
-    final prefs = await SharedPreferences.getInstance();
-    _quizCount = prefs.getInt('daily_quiz_count') ?? 0;
-
-    // Reset count if it's a new day
-    final lastDate = prefs.getString('last_quiz_date');
-    final today = DateTime.now().toIso8601String().split('T').first;
-    if (lastDate != today) {
-      _quizCount = 0;
-      await prefs.setString('last_quiz_date', today);
-      await prefs.setInt('daily_quiz_count', 0);
-    }
-    _initialized = true;
-  }
-
-  bool isLimitReached() => _quizCount >= _freeQuizLimit;
-
-  int getRemainingFreeQuizzes() =>
-      (_freeQuizLimit - _quizCount).clamp(0, _freeQuizLimit);
-
-  void incrementQuizCount() async {
-    _quizCount++;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('daily_quiz_count', _quizCount);
-  }
-
-  void showRewardedAd({
-    required VoidCallback onRewardEarned,
-    required VoidCallback onAdFailed,
-  }) {
-    // TODO: Integrate with google_mobile_ads for production
-    // For now, just reward the user
-    onRewardEarned();
-  }
-
-  bool isFlashcardLimitReached() => false;
-  void incrementFlashcardCount() {}
-}
 
 /// Shown while a topic is being generated.
 class QuizGenerationLoadingScreen extends StatelessWidget {

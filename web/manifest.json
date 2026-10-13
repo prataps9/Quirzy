@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#0A0A0C",
     "theme_color": "#0A0A0C",
-    "description": "A new Flutter project.",
+    "description": "Practice questions, flashcards and study sets for your exam.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

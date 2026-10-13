@@ -101,13 +101,13 @@ abstract class AppLocalizations {
   /// No description provided for @welcomeTitle.
   ///
   /// In en, this message translates to:
-  /// **'Unlock your potential\nwith Quirzy'**
+  /// **'Crack your exam\nwith AI'**
   String get welcomeTitle;
 
   /// No description provided for @welcomeSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Master any subject with smart, AI-generated quizzes tailored just for you.'**
+  /// **'Practice questions, flashcards and study sets for JEE, NEET, CAT, GRE and more.'**
   String get welcomeSubtitle;
 
   /// No description provided for @continueWithGoogle.
@@ -119,7 +119,7 @@ abstract class AppLocalizations {
   /// No description provided for @acceptPrivacy.
   ///
   /// In en, this message translates to:
-  /// **'Please accept the Privacy Policy to continue'**
+  /// **'Please accept the Privacy Policy and Terms to continue'**
   String get acceptPrivacy;
 
   /// No description provided for @required.
@@ -257,13 +257,13 @@ abstract class AppLocalizations {
   /// No description provided for @homeTitle1.
   ///
   /// In en, this message translates to:
-  /// **'What do you want to\n'**
+  /// **'Prepare smarter,\n'**
   String get homeTitle1;
 
   /// No description provided for @homeTitle2.
   ///
   /// In en, this message translates to:
-  /// **'learn today?'**
+  /// **'score higher.'**
   String get homeTitle2;
 
   /// No description provided for @actionAIGen.
@@ -305,7 +305,7 @@ abstract class AppLocalizations {
   /// No description provided for @generateQuizButton.
   ///
   /// In en, this message translates to:
-  /// **'Generate Quiz'**
+  /// **'Add Practice Topic'**
   String get generateQuizButton;
 
   /// No description provided for @listening.
@@ -341,7 +341,7 @@ abstract class AppLocalizations {
   /// No description provided for @configureQuizTitle.
   ///
   /// In en, this message translates to:
-  /// **'Configure Quiz'**
+  /// **'Configure Topic'**
   String get configureQuizTitle;
 
   /// No description provided for @topicLabel.

@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../services/flashcard_prefs.dart';
+import '../services/srs_service.dart';
 
-/// FlashcardCacheService - Manages local caching of flashcards
-class FlashcardCacheService {
-  static Future<void> init() async {
-    // Initialize Hive box for flashcard caching
-  }
-}
-
-/// FlashcardStudyScreen - Screen for studying flashcards
-class FlashcardStudyScreen extends StatefulWidget {
+/// FlashcardStudyScreen - goes through every card in a set. Each answer is
+/// also rated in the spaced-repetition schedule ("Got it" = good,
+/// "Still learning" = again).
+class FlashcardStudyScreen extends ConsumerStatefulWidget {
   final String setId;
   final String title;
   final List<Map<String, dynamic>> cards;
@@ -24,14 +22,26 @@ class FlashcardStudyScreen extends StatefulWidget {
   });
 
   @override
-  State<FlashcardStudyScreen> createState() => _FlashcardStudyScreenState();
+  ConsumerState<FlashcardStudyScreen> createState() =>
+      _FlashcardStudyScreenState();
 }
 
-class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
+class _FlashcardStudyScreenState extends ConsumerState<FlashcardStudyScreen> {
+  final SrsService _srs = SrsService();
   int _currentIndex = 0;
   bool _showAnswer = false;
+  bool _rating = false;
   int _knownCount = 0;
   int _unknownCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final setId = widget.setId;
+    Future.microtask(
+      () => ref.read(flashcardPrefsProvider.notifier).markStudied(setId),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -123,15 +133,15 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
                     Column(
                       children: [
                         AppButton(
-                          label: 'Got It!',
+                          label: 'Got it',
                           icon: Icons.check_rounded,
-                          onPressed: () => _nextCard(true),
+                          onPressed: _rating ? null : () => _nextCard(true),
                         ),
                         const SizedBox(height: AppSpace.md),
                         AppButton.secondary(
-                          label: 'Still Learning',
+                          label: 'Still learning',
                           icon: Icons.close_rounded,
-                          onPressed: () => _nextCard(false),
+                          onPressed: _rating ? null : () => _nextCard(false),
                         ),
                       ],
                     ).animate().fade(duration: 200.ms).slideY(
@@ -145,7 +155,20 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     );
   }
 
-  void _nextCard(bool known) {
+  Future<void> _nextCard(bool known) async {
+    setState(() => _rating = true);
+    try {
+      await _srs.rateCard(
+        widget.setId,
+        _currentIndex,
+        known ? SrsRating.good : SrsRating.again,
+      );
+    } catch (_) {
+      // Rating is best-effort; studying continues either way.
+    }
+    if (!mounted) return;
+    _rating = false;
+
     if (known) {
       _knownCount++;
     } else {
@@ -158,7 +181,7 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
         _showAnswer = false;
       });
     } else {
-      // Show completion dialog
+      setState(() {});
       _showCompletionDialog();
     }
   }
@@ -167,8 +190,8 @@ class _FlashcardStudyScreenState extends State<FlashcardStudyScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Session Complete! 🎉'),
-        content: Text('Known: $_knownCount\nStill Learning: $_unknownCount'),
+        title: const Text('Session complete'),
+        content: Text('Got it: $_knownCount\nStill learning: $_unknownCount'),
         actions: [
           TextButton(
             onPressed: () {

@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,6 +40,7 @@ class SmartNotificationService {
   Future<void> init() async {
     if (_ready) return;
     tz_data.initializeTimeZones();
+    await _setLocalLocation();
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings(
@@ -50,6 +53,32 @@ class SmartNotificationService {
       const InitializationSettings(android: android, iOS: ios),
     );
     _ready = true;
+  }
+
+  /// Points `tz.local` at the device's zone so scheduled times are local,
+  /// not UTC. Falls back to a zone whose current offset matches the device.
+  Future<void> _setLocalLocation() async {
+    try {
+      final info = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(info.identifier));
+      return;
+    } catch (e) {
+      debugPrint('SmartNotificationService: timezone plugin failed: $e');
+    }
+    try {
+      final now = DateTime.now();
+      final offsetMs = now.timeZoneOffset.inMilliseconds;
+      final matches = tz.timeZoneDatabase.locations.values
+          .where((l) => l.currentTimeZone.offset == offsetMs)
+          .toList();
+      if (matches.isEmpty) return;
+      final byAbbreviation = matches.where(
+          (l) => l.currentTimeZone.abbreviation == now.timeZoneName);
+      tz.setLocalLocation(
+          byAbbreviation.isNotEmpty ? byAbbreviation.first : matches.first);
+    } catch (e) {
+      debugPrint('SmartNotificationService: timezone fallback failed: $e');
+    }
   }
 
   Future<void> _ensureReady() async {
@@ -98,7 +127,8 @@ class SmartNotificationService {
   }
 
   // ── Streak Protection ─────────────────────────────────────────────────────
-  // Schedule at 9 PM if user hasn't studied yet today.
+  // 9 PM today if the user hasn't studied yet. Once they have, pass
+  // [studiedToday] = true to move the alert to 9 PM tomorrow instead.
 
   Future<void> scheduleStreakProtection({
     required int currentStreak,
@@ -109,17 +139,27 @@ class SmartNotificationService {
 
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('notif_streak') ?? true)) return;
-    if (studiedToday) return;
+
+    final now = tz.TZDateTime.now(tz.local);
+    var fireAt = tz.TZDateTime(tz.local, now.year, now.month, now.day, 21);
+    if (studiedToday) {
+      fireAt = tz.TZDateTime(tz.local, now.year, now.month, now.day + 1, 21);
+    } else if (fireAt.isBefore(now)) {
+      // Too late for tonight's alert; tomorrow's would describe a streak
+      // that has already ended.
+      if (currentStreak > 0) return;
+      fireAt = tz.TZDateTime(tz.local, now.year, now.month, now.day + 1, 21);
+    }
 
     final body = currentStreak > 1
-        ? 'Your $currentStreak-day streak ends at midnight! Quick practice to save it.'
+        ? 'Your $currentStreak-day streak ends at midnight. A quick practice keeps it going.'
         : 'Start your streak today — just 5 minutes of practice.';
 
     await _plugin.zonedSchedule(
       _NIds.streakWarning,
-      currentStreak > 1 ? 'Streak at risk!' : 'Build your streak',
+      currentStreak > 1 ? 'Streak at risk' : 'Build your streak',
       body,
-      _todayAt(21, 0),
+      fireAt,
       _details(_Channels.streak, 'Streak Protection',
           'Alerts when your daily streak is at risk'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
@@ -141,7 +181,8 @@ class SmartNotificationService {
   }
 
   // ── Exam Countdown ────────────────────────────────────────────────────────
-  // Scheduled weekly on Sunday mornings.
+  // Next Sunday 8 AM, one-shot. Re-scheduled on every app open so the day
+  // count in the text is always measured from the day it fires.
 
   Future<void> scheduleExamCountdown({
     required String examName,
@@ -153,29 +194,36 @@ class SmartNotificationService {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('notif_exam_countdown') ?? true)) return;
 
-    final daysLeft = examDate.difference(DateTime.now()).inDays;
+    final fireAt = _nextWeekday(DateTime.sunday, 8, 0);
+    final daysLeft = DateTime.utc(examDate.year, examDate.month, examDate.day)
+        .difference(DateTime.utc(fireAt.year, fireAt.month, fireAt.day))
+        .inDays;
     if (daysLeft <= 0) return;
 
+    final days = daysLeft == 1 ? '1 day' : '$daysLeft days';
     String body;
     if (daysLeft <= 7) {
-      body = '$examName is in $daysLeft days. Give it everything!';
+      body = '$examName is in $days. Focus on your weak topics.';
     } else if (daysLeft <= 30) {
-      body = '$daysLeft days to $examName. Practice + weak area review now.';
+      body = '$days to $examName. Practice and review your weak topics.';
     } else {
-      body = '$daysLeft days to $examName. Steady daily practice wins.';
+      body = '$days to $examName. Steady daily practice adds up.';
     }
 
-    // Sunday 8 AM weekly
     await _plugin.zonedSchedule(
       _NIds.examCountdown,
-      '$examName Countdown',
+      '$examName countdown',
       body,
-      _nextWeekday(DateTime.sunday, 8, 0),
+      fireAt,
       _details(_Channels.exam, 'Exam Countdown',
-          'Weekly countdown and tips for your target exam'),
+          'Weekly countdown to your exam date'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
     );
+  }
+
+  Future<void> cancelExamCountdown() async {
+    await _ensureReady();
+    await _plugin.cancel(_NIds.examCountdown);
   }
 
   // ── Weekly Digest ─────────────────────────────────────────────────────────
@@ -222,7 +270,7 @@ class SmartNotificationService {
     if (!(prefs.getBool('notif_re_engage') ?? true)) return;
 
     final messages = [
-      'Your flashcards miss you. 5-min review?',
+      'A few minutes of practice keeps it fresh. 5 questions?',
       'Back to studying? Your progress is waiting.',
       'Quick practice to warm up? Just 5 questions.',
     ];

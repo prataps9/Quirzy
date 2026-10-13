@@ -9,6 +9,8 @@ import 'package:quirzy/features/feed/services/streak_service.dart';
 import 'package:quirzy/features/feed/services/xp_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../support/side_effect_fakes.dart';
+
 PracticeQuestion _q(String topic, int n) => PracticeQuestion(
   id: '${topic}_$n',
   questionText: '$topic question $n',
@@ -17,10 +19,15 @@ PracticeQuestion _q(String topic, int n) => PracticeQuestion(
   topic: topic,
 );
 
-Future<ProviderContainer> _loadedFeed(List<PracticeQuestion> pool) async {
+Future<ProviderContainer> _loadedFeed(
+  List<PracticeQuestion> pool, {
+  FakeLeaderboardSync? leaderboard,
+  FakeNotificationScheduler? scheduler,
+}) async {
   final container = ProviderContainer(
     overrides: [
       feedQuestionPoolProvider.overrideWith((ref) async => pool),
+      ...sideEffectOverrides(leaderboard: leaderboard, scheduler: scheduler),
       feedRankerProvider.overrideWithValue(
         FeedRanker(random: math.Random(1)),
       ),
@@ -111,6 +118,18 @@ void main() {
       expect(state.reward?.kind, FeedRewardKind.streak);
       expect(state.reward?.value, 1);
       expect((await container.read(streakProvider.future)).current, 1);
+    });
+
+    test('answers sync the leaderboard and only the first one moves the streak alert', () async {
+      final leaderboard = FakeLeaderboardSync();
+      final scheduler = FakeNotificationScheduler();
+      final container = await _loadedFeed(pool, leaderboard: leaderboard, scheduler: scheduler);
+      await answer(container, 0);
+      await answer(container, 1);
+      await container.read(feedControllerProvider.notifier).skipCurrent(2);
+
+      expect(leaderboard.scheduled, 3);
+      expect(scheduler.practisedToday, 1);
     });
 
     test('five correct answers in a row earn a combo milestone with bonus XP', () async {

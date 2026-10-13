@@ -1,48 +1,32 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../domain/domain.dart';
+import '../../shared/appwrite/user/user_service.dart';
+import '../../shared/services/local_data_reset.dart';
 
 /// Auth state provider using AsyncNotifier for proper state management
 final authProvider = AsyncNotifierProvider<AuthNotifier, AuthUser?>(
   AuthNotifier.new,
 );
 
-/// Auth Notifier - handles login, signup, logout with proper state management
+/// Auth Notifier - Google sign-in, logout and account deletion.
 class AuthNotifier extends AsyncNotifier<AuthUser?> {
   static const _storage = FlutterSecureStorage();
 
   @override
   Future<AuthUser?> build() async {
     // Check for existing session on app start
-    return ref.read(getCurrentUserUseCaseProvider).call();
-  }
-
-  /// Login with email and password
-  Future<void> login(String email, String password) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      final user = await ref
-          .read(loginUseCaseProvider)
-          .call(email: email, password: password);
-      await _saveUserToStorage(user);
-      return user;
-    });
-  }
-
-  /// Sign up with email, password and name
-  Future<void> signUp(String email, String password, String name) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      final user = await ref.read(signUpUseCaseProvider).call(
-        email: email,
-        password: password,
-        name: name,
-      );
-      await _saveUserToStorage(user);
-      return user;
-    });
+    final user = await ref.read(getCurrentUserUseCaseProvider).call();
+    if (user != null) {
+      // Other screens read the name/photo from secure storage; keep it fresh.
+      try {
+        await _saveUserToStorage(user);
+      } catch (e) {
+        debugPrint('AuthProvider: Could not cache user: $e');
+      }
+    }
+    return user;
   }
 
   /// Google Sign In (Native flow - no deep links needed)
@@ -57,14 +41,34 @@ class AuthNotifier extends AsyncNotifier<AuthUser?> {
     });
   }
 
-  /// Logout
+  /// Ends the Appwrite session and wipes everything stored on this device.
+  /// The caller should then restart the app ([AppRestartScope.restart]) so
+  /// no provider keeps the previous user's data in memory.
   Future<void> logout() async {
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
+    await _endSessionAndWipe();
+    state = const AsyncValue.data(null);
+  }
+
+  /// Deletes the user's profile, blocks the Appwrite account so it can't be
+  /// signed in to again, then logs out and wipes local data. Throws if the
+  /// server-side steps fail — in that case the user stays signed in.
+  Future<void> deleteAccount() async {
+    final userId = state.value?.id;
+    if (userId == null) throw StateError('Not signed in');
+    await UserService().deleteUserAccount(userId: userId);
+    await _endSessionAndWipe();
+    state = const AsyncValue.data(null);
+  }
+
+  Future<void> _endSessionAndWipe() async {
+    try {
       await ref.read(logoutUseCaseProvider).call();
-      await _clearStorage();
-      return null;
-    });
+    } catch (e) {
+      // A dead or already-blocked session is fine — we're leaving anyway.
+      debugPrint('AuthProvider: Session delete failed: $e');
+    }
+    await LocalDataReset.wipe();
   }
 
   Future<void> refresh() async {
@@ -88,19 +92,4 @@ class AuthNotifier extends AsyncNotifier<AuthUser?> {
       await _storage.write(key: 'user_photo_url', value: user.photoUrl);
     }
   }
-
-  Future<void> _clearStorage() async {
-    await _storage.delete(key: 'user_id');
-    await _storage.delete(key: 'user_name');
-    await _storage.delete(key: 'user_email');
-    await _storage.delete(key: 'user_photo_url');
-  }
 }
-
-/// Legacy providers for backward compatibility
-final authStateProvider = StreamProvider<AuthUser?>((ref) {
-  final useCase = ref.watch(getCurrentUserUseCaseProvider);
-  return Stream.fromFuture(useCase.call());
-});
-
-final loadingProvider = StateProvider<bool>((ref) => false);

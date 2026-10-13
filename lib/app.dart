@@ -35,7 +35,7 @@ class _QuirzyAppState extends ConsumerState<QuirzyApp> {
 
   @override
   void dispose() {
-    DeepLinkService.instance.dispose();
+    DeepLinkService.instance.dispose(ref);
     super.dispose();
   }
 
@@ -48,7 +48,7 @@ class _QuirzyAppState extends ConsumerState<QuirzyApp> {
       animation: settings,
       builder: (context, child) {
         return MaterialApp.router(
-          title: 'ExamAI',
+          title: 'Quirzy',
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: settings.themeMode,

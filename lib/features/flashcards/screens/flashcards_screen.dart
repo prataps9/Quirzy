@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
-import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../l10n/app_localizations.dart';
-import '../../home/widgets/home_widgets.dart' show AdService, QuizGenerationLoadingScreen;
+import '../../home/widgets/home_widgets.dart' show QuizGenerationLoadingScreen;
+import '../../subscription/services/usage_limits.dart';
+import '../../subscription/widgets/limit_sheet.dart';
 import '../providers/flashcard_providers.dart';
 import '../widgets/flashcard_widgets.dart';
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../onboarding/screens/screens.dart';
+import '../services/flashcard_prefs.dart';
+import '../services/recommended_topics.dart';
 import '../services/srs_service.dart';
 import 'srs_review_screen.dart';
 
@@ -38,7 +41,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   bool _isLoading = true;
   int _selectedTab = 0;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  String _userName = 'Practice Champ';
+  String _userName = '';
   String? _photoUrl;
 
   static const _suggestedTopics = [
@@ -56,12 +59,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   void initState() {
     super.initState();
     _loadUserData();
-    _initAndLoad();
-  }
-
-  Future<void> _initAndLoad() async {
-    // FlashcardCacheService.init() is optional - Hive handles this via main.dart
-    await _loadFlashcardSets();
+    _loadFlashcardSets();
   }
 
   Future<void> _loadUserData() async {
@@ -100,33 +98,24 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
 
     HapticFeedback.mediumImpact();
     _focusNode.unfocus();
-
-    // Check daily limit (53 free flashcards per day)
-    final adService = AdService();
-    if (!adService.isFlashcardLimitReached()) {
-      // Still have free flashcards
-      adService.incrementFlashcardCount();
-      _startFlashcardGeneration(topic);
-    } else {
-      // Limit reached - show ad
-      adService.showRewardedAd(
-        onRewardEarned: () {
-          if (mounted) {
-            _startFlashcardGeneration(topic);
-          }
-        },
-        onAdFailed: () {
-          // Fallback: Proceed even if ad fails
-          if (mounted) {
-            _startFlashcardGeneration(topic);
-          }
-        },
-      );
-    }
+    await _startFlashcardGeneration(topic, clearInput: true);
   }
 
-  Future<void> _startFlashcardGeneration(String topic) async {
-    // Show AI Generation Loading Screen
+  /// Shared by the topic field and the Recommended tiles: checks the daily
+  /// limit, generates a set (saved to My Library), then opens it.
+  Future<void> _startFlashcardGeneration(
+    String topic, {
+    bool clearInput = false,
+  }) async {
+    final allowed = await ref
+        .read(usageLimitsProvider.notifier)
+        .canUse(UsageKind.flashcardSet);
+    if (!mounted) return;
+    if (!allowed) {
+      showLimitSheet(context, UsageKind.flashcardSet);
+      return;
+    }
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -144,12 +133,14 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
         cardCount: 10,
       );
 
+      await ref.read(usageLimitsProvider.notifier).record(UsageKind.flashcardSet);
       if (!mounted) return;
 
       // Pop loading screen
       Navigator.pop(context);
 
-      _topicController.clear();
+      if (clearInput) _topicController.clear();
+      _loadFlashcardSets();
       Navigator.push(
         context,
         PageRouteBuilder(
@@ -206,11 +197,6 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   void _openFlashcardSet(Map<String, dynamic> set) async {
     HapticFeedback.lightImpact();
     if (!mounted) return;
-
-    if (set['isPremium'] == true) {
-      _showPremiumDialog(set['title'] as String);
-      return;
-    }
 
     showDialog(
       context: context,
@@ -296,7 +282,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                         cards: cards,
                       ),
                     ),
-                  );
+                  ).then((_) => _refreshDueBadges());
                 },
               ),
               const SizedBox(height: 12),
@@ -328,7 +314,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                               dueIndices: dueIndices,
                             ),
                           ),
-                        );
+                        ).then((_) => _refreshDueBadges());
                       }
                     : null,
               ),
@@ -337,6 +323,50 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
         );
       },
     );
+  }
+
+  /// Due counts are read on build, so a rebuild picks up new SRS ratings.
+  void _refreshDueBadges() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> set) async {
+    final setId = set['id'] as String?;
+    if (setId == null) return;
+    final title = (set['title'] as String?) ?? 'this set';
+    final p = context.palette;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete set?'),
+        content: Text('"$title" and its cards will be deleted. This can\'t be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: p.textMuted),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: p.danger),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(flashcardServiceProvider).deleteFlashcardSet(setId);
+      await ref.read(flashcardPrefsProvider.notifier).remove(setId);
+      await SrsService().removeSet(setId);
+      if (!mounted) return;
+      setState(() => _flashcardSets.removeWhere((s) => s['id'] == setId));
+      _showSnackBar('Set deleted');
+      _loadFlashcardSets();
+    } catch (e) {
+      _showSnackBar('Couldn\'t delete the set. Try again.', isError: true);
+    }
   }
 
   Widget _modeCard({
@@ -433,7 +463,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   Widget _buildTabBar() {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
-    final tabs = ['Recommended', 'My Library', 'Recent'];
+    final tabs = ['Recommended', 'My Library', 'Recent', 'Favourites'];
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -483,8 +513,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   }
 
   Widget _buildFlashcardsList() {
-    final p = context.palette;
-    final textTheme = Theme.of(context).textTheme;
+    if (_selectedTab == 0) return _buildRecommended();
 
     if (_isLoading) {
       return SliverPadding(
@@ -495,85 +524,46 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       );
     }
 
-    List<Map<String, dynamic>> filteredSets = [];
-    final selectedExam = ref.watch(examProvider);
+    final prefs = ref.watch(flashcardPrefsProvider).value ??
+        const FlashcardPrefsState();
+    List<Map<String, dynamic>> filteredSets;
 
-    if (_selectedTab == 0) {
-      // Recommended / Exam Specific
-      if (selectedExam == null) {
-        // Show prompt to select exam
-        return SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            child: AppCard(
-              padding: const EdgeInsets.all(24),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ExamSelectionScreen(),
-                  ),
-                );
-              },
-              child: SizedBox(
-                width: double.infinity,
-                child: Column(
-                  children: [
-                    Icon(Icons.school_rounded, color: p.accentText, size: 40),
-                    const SizedBox(height: 12),
-                    Text('Select Your Goal', style: textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Choose an exam to get tailored flashcards.',
-                      textAlign: TextAlign.center,
-                      style: textTheme.bodyMedium!.copyWith(
-                        color: p.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      } else {
-        // Return categorized content
-        final sections = _getExamData(selectedExam);
-        return SliverList(
-          delegate: SliverChildBuilderDelegate((context, index) {
-            final subject = sections.keys.elementAt(index);
-            final sets = sections[subject]!;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-                  child: SectionHeader(title: subject),
-                ),
-                ...sets.map(
-                  (set) => Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: _buildFlashcardSetCard(set),
-                  ),
-                ),
-              ],
-            );
-          }, childCount: sections.length),
-        );
-      }
-    } else {
-      filteredSets = List.from(_flashcardSets);
-      if (_selectedTab == 2) {
-        // Recent
-        filteredSets = filteredSets.take(5).toList();
-      }
-      // My Library (tab 1): all user sets, no filter.
+    switch (_selectedTab) {
+      case 2:
+        // Recent: studied sets only, most recently studied first.
+        final byId = {for (final s in _flashcardSets) s['id']: s};
+        filteredSets = [
+          for (final id in prefs.recentIds)
+            if (byId[id] != null) byId[id]!,
+        ];
+      case 3:
+        filteredSets = _flashcardSets
+            .where((s) => prefs.isFavourite(s['id'] as String? ?? ''))
+            .toList();
+      default:
+        filteredSets = List.from(_flashcardSets);
     }
 
     if (filteredSets.isEmpty) {
       return SliverFillRemaining(
         hasScrollBody: false,
-        child: _buildEmptyState(),
+        child: switch (_selectedTab) {
+          2 => _buildEmptyState(
+            icon: Icons.history_rounded,
+            title: 'Nothing studied yet',
+            message: 'Sets you study will show up here.',
+          ),
+          3 => _buildEmptyState(
+            icon: Icons.star_outline_rounded,
+            title: 'No favourites yet',
+            message: 'Tap the star on a set to keep it here.',
+          ),
+          _ => _buildEmptyState(
+            icon: Icons.style_rounded,
+            title: 'No flashcards yet',
+            message: 'Create your first set above.',
+          ),
+        },
       );
     }
 
@@ -581,127 +571,306 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate((context, index) {
-          return _buildFlashcardSetCard(filteredSets[index]);
+          final set = filteredSets[index];
+          return _buildFlashcardSetCard(
+            set,
+            isFavourite: prefs.isFavourite(set['id'] as String? ?? ''),
+            lastStudied: prefs.lastStudied[set['id']],
+          );
         }, childCount: filteredSets.length),
       ),
     );
   }
 
-  Widget _buildFlashcardSetCard(Map<String, dynamic> set) {
+  Widget _buildRecommended() {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
+    final selectedExam = ref.watch(examProvider);
+    final topics = recommendedTopicsFor(selectedExam);
+
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+      sliver: SliverList(
+        delegate: SliverChildListDelegate([
+          if (selectedExam == null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.lg),
+              child: AppCard(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const ExamSelectionScreen(),
+                    ),
+                  );
+                },
+                child: Row(
+                  children: [
+                    Icon(Icons.school_rounded, color: p.accentText, size: 28),
+                    const SizedBox(width: AppSpace.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Pick your exam', style: textTheme.titleMedium),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Get topics picked for what you\'re studying.',
+                            style: textTheme.bodySmall!.copyWith(
+                              color: p.textMuted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 18,
+                      color: p.textMuted,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          SectionHeader(
+            title: selectedExam == null
+                ? 'Suggested topics'
+                : 'Suggested for ${examLabel(selectedExam)}',
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpace.md),
+            child: Text(
+              'Tap a topic to generate a set. It\'s saved to My Library.',
+              style: textTheme.bodySmall!.copyWith(color: p.textMuted),
+            ),
+          ),
+          for (final topic in topics)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpace.md),
+              child: _buildTopicTile(topic),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildTopicTile(String topic) {
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
+    return AppCard(
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        _startFlashcardGeneration(topic);
+      },
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              topic,
+              style: textTheme.titleMedium,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: AppSpace.md),
+          Icon(Icons.auto_awesome_rounded, size: 16, color: p.accentText),
+          const SizedBox(width: 4),
+          Text(
+            'Generate',
+            style: textTheme.labelLarge!.copyWith(color: p.accentText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _studiedLabel(DateTime at) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(at.year, at.month, at.day);
+    final days = today.difference(day).inDays;
+    if (days <= 0) return 'Studied today';
+    if (days == 1) return 'Studied yesterday';
+    return 'Studied $days days ago';
+  }
+
+  Widget _buildFlashcardSetCard(
+    Map<String, dynamic> set, {
+    required bool isFavourite,
+    DateTime? lastStudied,
+  }) {
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
+    final setId = set['id'] as String? ?? '';
     final title = set['title'] ?? 'Untitled Set';
     final cardCount = set['cardCount'] ?? set['cards']?.length ?? 0;
-    final isFavorite = set['isFavorite'] == true;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpace.lg),
-      child: AppCard(
-        onTap: () => _openFlashcardSet(set),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: p.accentSoft,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.layers_rounded, size: 14, color: p.accentText),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$cardCount Cards',
-                        style: textTheme.labelMedium!.copyWith(
+      child: GestureDetector(
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          _confirmDelete(set);
+        },
+        child: AppCard(
+          onTap: () => _openFlashcardSet(set),
+          padding: const EdgeInsets.fromLTRB(20, 12, 8, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.accentSoft,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.layers_rounded,
+                          size: 14,
                           color: p.accentText,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$cardCount Cards',
+                          style: textTheme.labelMedium!.copyWith(
+                            color: p.accentText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: isFavourite
+                        ? 'Remove from favourites'
+                        : 'Add to favourites',
+                    onPressed: setId.isEmpty
+                        ? null
+                        : () {
+                            HapticFeedback.selectionClick();
+                            ref
+                                .read(flashcardPrefsProvider.notifier)
+                                .toggleFavourite(setId);
+                          },
+                    icon: Icon(
+                      isFavourite
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      color: isFavourite
+                          ? p.streak
+                          : p.textMuted.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: 'More',
+                    icon: Icon(Icons.more_vert_rounded, color: p.textMuted),
+                    onSelected: (value) {
+                      if (value == 'delete') _confirmDelete(set);
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline_rounded,
+                              color: p.danger,
+                              size: 20,
+                            ),
+                            const SizedBox(width: AppSpace.sm),
+                            Text('Delete', style: TextStyle(color: p.danger)),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-                // Favorite Button
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    // Logic to toggle favorite would go here
-                    _showSnackBar('Added to favorites', isError: false);
-                  },
-                  child: Icon(
-                    isFavorite
-                        ? Icons.star_rounded
-                        : Icons.star_outline_rounded,
-                    color: isFavorite
-                        ? p.streak
-                        : p.textMuted.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: textTheme.titleMedium!.copyWith(fontSize: 18),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text('Tap to study', style: textTheme.bodySmall),
-                const Spacer(),
-                FutureBuilder<Map<String, int>>(
-                  future: () async {
-                    final id = set['id'] as String?;
-                    final count = (set['cardCount'] ?? 0) as int;
-                    if (id == null || count == 0) return <String, int>{};
-                    return SrsService().getSetStats(id, count);
-                  }(),
-                  builder: (context, snap) {
-                    final due = snap.data?['due'] ?? 0;
-                    if (due == 0) {
-                      return Icon(
-                        Icons.arrow_forward_rounded,
-                        size: 16,
-                        color: p.textMuted,
-                      );
-                    }
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: p.dangerSoft,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                      child: Text(
-                        '$due due',
-                        style: textTheme.labelSmall!.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: p.danger,
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Text(
+                      title,
+                      style: textTheme.titleMedium!.copyWith(fontSize: 18),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text(
+                          lastStudied != null
+                              ? _studiedLabel(lastStudied)
+                              : 'Tap to study',
+                          style: textTheme.bodySmall,
                         ),
-                      ),
-                    );
-                  },
+                        const Spacer(),
+                        _buildDueBadge(set),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildDueBadge(Map<String, dynamic> set) {
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
+    return FutureBuilder<Map<String, int>>(
+      future: () async {
+        final id = set['id'] as String?;
+        final count = (set['cardCount'] ?? 0) as int;
+        if (id == null || count == 0) return <String, int>{};
+        return SrsService().getSetStats(id, count);
+      }(),
+      builder: (context, snap) {
+        final due = snap.data?['due'] ?? 0;
+        if (due == 0) {
+          return Icon(
+            Icons.arrow_forward_rounded,
+            size: 16,
+            color: p.textMuted,
+          );
+        }
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: p.dangerSoft,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            '$due due',
+            style: textTheme.labelSmall!.copyWith(
+              fontWeight: FontWeight.w800,
+              color: p.danger,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
     return Center(
@@ -714,15 +883,15 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
               color: p.accentSoft,
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.style_rounded, size: 48, color: p.accentText),
+            child: Icon(icon, size: 48, color: p.accentText),
           ),
           const SizedBox(height: 24),
-          Text('No Flashcards', style: textTheme.titleLarge),
+          Text(title, style: textTheme.titleLarge),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 48),
             child: Text(
-              'Create your first set above to get started!',
+              message,
               textAlign: TextAlign.center,
               style: textTheme.bodyMedium!.copyWith(color: p.textMuted),
             ),
@@ -949,84 +1118,6 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Map<String, List<Map<String, dynamic>>> _getExamData(String exam) {
-    final subjects = _getSubjectsForExam(exam);
-    final data = <String, List<Map<String, dynamic>>>{};
-
-    for (final subject in subjects) {
-      data[subject] = [
-        {
-          'id': '${exam}_${subject}_1',
-          'title': '$subject - Key Concepts',
-          'cardCount': 20 + Random().nextInt(30),
-          'isPremium': true,
-        },
-        {
-          'id': '${exam}_${subject}_2',
-          'title': '$subject - Practice Set',
-          'cardCount': 40 + Random().nextInt(20),
-          'isPremium': true,
-        },
-        {
-          'id': '${exam}_${subject}_3',
-          'title': 'Advanced $subject',
-          'cardCount': 50,
-          'isPremium': true,
-        },
-      ];
-    }
-    return data;
-  }
-
-  List<String> _getSubjectsForExam(String exam) {
-    switch (exam.toLowerCase()) {
-      case 'jee':
-        return ['Physics', 'Chemistry', 'Mathematics'];
-      case 'neet':
-        return ['Biology', 'Physics', 'Chemistry'];
-      case 'mba':
-      case 'cat':
-      case 'gmat':
-      case 'gre':
-        return ['Quantitative', 'Verbal Ability', 'Logical Reasoning'];
-      case '10th':
-      case '12th':
-        return ['Science', 'Mathematics', 'English', 'Social Studies'];
-      case 'ielts':
-        return ['Reading', 'Writing', 'Listening', 'Speaking'];
-      default:
-        return ['General Knowledge', 'Aptitude'];
-    }
-  }
-
-  void _showPremiumDialog(String itemName) {
-    if (!mounted) return;
-    final p = context.palette;
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Premium Content 💎'),
-        content: Text(
-          'Unlock "$itemName" and thousands of other expert-curated materials with Quirzy Pro.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(foregroundColor: p.textMuted),
-            child: const Text('Maybe Later'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _showSnackBar('Subscription feature coming soon! 🚀');
-            },
-            child: const Text('Get Premium'),
-          ),
-        ],
       ),
     );
   }
