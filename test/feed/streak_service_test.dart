@@ -76,4 +76,23 @@ void main() {
       'feed_answered_count_${day.toIso8601String().split('T').first}',
     );
   });
+
+  test('a day with only flashcard reviews keeps the streak alive', () async {
+    SharedPreferences.setMockInitialValues({
+      StreakService.countKey(DateTime(now.year, now.month, now.day - 1)): 2,
+    });
+    await service.recordFlashcardReview();
+    final streak = await service.getStreak();
+    expect(streak.current, 2);
+    expect(streak.practisedToday, isTrue);
+  });
+
+  test('flashcardsReviewed sums the last week only', () async {
+    SharedPreferences.setMockInitialValues({
+      StreakService.flashcardKey(DateTime(now.year, now.month, now.day - 2)): 4,
+      StreakService.flashcardKey(DateTime(now.year, now.month, now.day - 9)): 50,
+    });
+    await service.recordFlashcardReview();
+    expect(await service.flashcardsReviewed(), 5);
+  });
 }

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../feed/services/streak_service.dart';
+
 enum SrsRating { again, hard, good, easy }
 
 class SrsCard {
@@ -105,6 +107,7 @@ class SrsService {
     card.dueDate = DateTime.now().add(Duration(days: card.interval));
     cards[key] = card;
     await _saveAll(cards);
+    await StreakService().recordFlashcardReview();
     return card;
   }
 

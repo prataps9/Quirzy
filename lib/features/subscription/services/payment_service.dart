@@ -1,7 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import 'pro_status.dart';
+
+/// Your Razorpay key id. TODO: replace the placeholder with your live key
+/// (`rzp_live_…`) from the Razorpay dashboard before release — checkout
+/// cannot open with the placeholder.
+const String kRazorpayKeyId = 'rzp_test_XXXXXXXXXXXX';
 
 /// PaymentService - Handles Razorpay payments for Quirzy Pro subscriptions
 class PaymentService {
@@ -9,10 +15,8 @@ class PaymentService {
   late Razorpay _razorpay;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
-  // ⚠️ IMPORTANT: Replace with your actual Razorpay API Key
-  // Test Key: rzp_test_XXXXXXXXXXXX
-  // Live Key: rzp_live_XXXXXXXXXXXX
-  static const String _razorpayKey = 'rzp_test_XXXXXXXXXXXX';
+  /// The plan being paid for, so the success callback knows what to unlock.
+  ProPlan? _pendingPlan;
 
   // Callbacks
   Function(PaymentSuccessResponse)? onPaymentSuccess;
@@ -33,25 +37,26 @@ class PaymentService {
 
   /// Start a payment for a subscription plan
   Future<void> startPayment({
-    required String planName,
+    required ProPlan plan,
     required int amountInPaise, // ₹299 = 29900 paise
     required String description,
     String? email,
     String? phone,
   }) async {
     // Get user details from storage
+    _pendingPlan = plan;
     final userName = await _storage.read(key: 'user_name') ?? 'Quirzy User';
     final userEmail = email ?? await _storage.read(key: 'user_email') ?? '';
     final userPhone = phone ?? '';
 
     var options = {
-      'key': _razorpayKey,
+      'key': kRazorpayKeyId,
       'amount': amountInPaise,
       'name': 'Quirzy Pro',
       'description': description,
       'prefill': {'name': userName, 'email': userEmail, 'contact': userPhone},
-      'theme': {'color': '#5B13EC'},
-      'notes': {'plan': planName, 'app': 'quirzy'},
+      'theme': {'color': '#0A0A0C'},
+      'notes': {'plan': plan.name, 'app': 'quirzy'},
       'modal': {'confirm_close': true},
     };
 
@@ -65,7 +70,7 @@ class PaymentService {
   /// Start Monthly Plan Payment (₹299)
   Future<void> startMonthlyPlan({String? email, String? phone}) async {
     await startPayment(
-      planName: 'monthly',
+      plan: ProPlan.monthly,
       amountInPaise: 29900, // ₹299
       description: 'Quirzy Pro - Monthly Plan',
       email: email,
@@ -76,9 +81,9 @@ class PaymentService {
   /// Start Yearly Plan Payment (₹2,999)
   Future<void> startYearlyPlan({String? email, String? phone}) async {
     await startPayment(
-      planName: 'yearly',
+      plan: ProPlan.yearly,
       amountInPaise: 299900, // ₹2,999
-      description: 'Quirzy Pro - Yearly Plan (Save 20%)',
+      description: 'Quirzy Pro - Yearly Plan',
       email: email,
       phone: phone,
     );
@@ -87,18 +92,11 @@ class PaymentService {
   void _handlePaymentSuccess(PaymentSuccessResponse response) async {
     debugPrint('Payment Success: ${response.paymentId}');
 
-    // Save subscription status
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_pro', true);
-    await prefs.setString('payment_id', response.paymentId ?? '');
-    await prefs.setString(
-      'subscription_date',
-      DateTime.now().toIso8601String(),
+    await ProStatusStore().activate(
+      _pendingPlan ?? ProPlan.monthly,
+      paymentId: response.paymentId,
     );
-
-    // Store securely too
-    await _storage.write(key: 'is_pro', value: 'true');
-    await _storage.write(key: 'payment_id', value: response.paymentId ?? '');
+    _pendingPlan = null;
 
     onPaymentSuccess?.call(response);
   }
@@ -113,11 +111,8 @@ class PaymentService {
     onExternalWallet?.call(response);
   }
 
-  /// Check if user has Pro subscription
-  static Future<bool> isPro() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('is_pro') ?? false;
-  }
+  /// Whether the user currently has an unexpired Pro plan.
+  static Future<bool> isPro() async => (await ProStatusStore().load()).isPro;
 
   /// Dispose Razorpay instance
   void dispose() {

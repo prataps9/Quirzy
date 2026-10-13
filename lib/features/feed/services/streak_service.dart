@@ -24,11 +24,13 @@ class StreakInfo {
   bool get atRisk => current > 0 && !practisedToday;
 }
 
-/// Derives the practice streak from the per-day answer counters the feed
-/// already writes (`feed_answered_count_<yyyy-mm-dd>`), so it is earned by
-/// practising and can never drift from the real activity. A day counts if
-/// at least one question was answered or revealed; a streak stays alive
-/// until the end of the following day.
+/// Derives the practice streak from the per-day activity counters the app
+/// already writes — feed answers (`feed_answered_count_<yyyy-mm-dd>`) and
+/// flashcard reviews (`flashcard_reviewed_count_<yyyy-mm-dd>`) — so it is
+/// earned by practising and can never drift from the real activity. A day
+/// counts if at least one question was answered or revealed, or one
+/// flashcard was reviewed; a streak stays alive until the end of the
+/// following day.
 class StreakService {
   StreakService({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
@@ -37,11 +39,34 @@ class StreakService {
   final DateTime Function() _clock;
 
   /// The preference key the feed writes for [day]'s answered count.
-  static String countKey(DateTime day) {
+  static String countKey(DateTime day) => 'feed_answered_count_${_date(day)}';
+
+  /// The preference key [recordFlashcardReview] bumps for [day].
+  static String flashcardKey(DateTime day) => 'flashcard_reviewed_count_${_date(day)}';
+
+  static String _date(DateTime day) {
     final y = day.year.toString().padLeft(4, '0');
     final m = day.month.toString().padLeft(2, '0');
     final d = day.day.toString().padLeft(2, '0');
-    return 'feed_answered_count_$y-$m-$d';
+    return '$y-$m-$d';
+  }
+
+  /// Counts one flashcard review toward today's activity.
+  Future<void> recordFlashcardReview() async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = flashcardKey(_clock());
+    await prefs.setInt(key, (prefs.getInt(key) ?? 0) + 1);
+  }
+
+  /// Flashcards reviewed over the last [days] days, including today.
+  Future<int> flashcardsReviewed({int days = 7}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final now = _clock();
+    var total = 0;
+    for (var i = 0; i < days; i++) {
+      total += prefs.getInt(flashcardKey(DateTime(now.year, now.month, now.day - i))) ?? 0;
+    }
+    return total;
   }
 
   Future<StreakInfo> getStreak() async {
@@ -50,7 +75,8 @@ class StreakService {
 
     bool practised(int daysAgo) {
       final day = DateTime(now.year, now.month, now.day - daysAgo);
-      return (prefs.getInt(countKey(day)) ?? 0) > 0;
+      return (prefs.getInt(countKey(day)) ?? 0) > 0 ||
+          (prefs.getInt(flashcardKey(day)) ?? 0) > 0;
     }
 
     final practisedToday = practised(0);
