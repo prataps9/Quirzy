@@ -12,6 +12,7 @@ import '../../../shared/services/share_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
+import '../services/feed_audio.dart';
 import '../services/streak_service.dart';
 import '../widgets/deep_dive_sheet.dart';
 import '../widgets/feed_question_card.dart';
@@ -25,6 +26,11 @@ import '../widgets/long_press_menu_sheet.dart';
 /// the foreground — that's what the For You ranking learns from. The
 /// header keeps the daily habit in view (streak, goal ring, combo), and
 /// milestones are celebrated with confetti.
+///
+/// Like Reels, the feed moves on by itself after a correct answer, a fact
+/// read to the end, or a rated flashcard (unless turned off in Profile);
+/// any touch cancels a pending move. Read-aloud and answer sounds are
+/// opt-in.
 class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
@@ -39,10 +45,18 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Timer? _rewardTimer;
   Timer? _rewardDelay;
   FeedReward? _bannerReward;
+  Timer? _advanceTimer;
   int _currentIndex = 0;
   int _handledEpoch = 0;
+  bool _onScreen = true;
+
+  /// How long to wait before moving on, so the green check (or the end of
+  /// a fact) registers first.
+  static const _advanceAfterCorrect = Duration(milliseconds: 1200);
+  static const _advanceAfterRead = Duration(milliseconds: 500);
 
   FeedController get _controller => ref.read(feedControllerProvider.notifier);
+  FeedAudio get _audio => ref.read(feedAudioProvider);
 
   @override
   void initState() {
@@ -50,13 +64,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     _controller.isScrollIdle = () =>
         !_pageController.hasClients || !_pageController.position.isScrollingNotifier.value;
     _lifecycle = AppLifecycleListener(
-      onStateChange: (lifecycleState) =>
-          _controller.setAppResumed(lifecycleState == AppLifecycleState.resumed),
+      onStateChange: (lifecycleState) {
+        final resumed = lifecycleState == AppLifecycleState.resumed;
+        _controller.setAppResumed(resumed);
+        if (!resumed) _silence();
+      },
     );
   }
 
   @override
   void dispose() {
+    _advanceTimer?.cancel();
     _rewardTimer?.cancel();
     _rewardDelay?.cancel();
     _confetti.dispose();
@@ -77,6 +95,57 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (!mounted) return;
       if (_pageController.hasClients) _pageController.jumpToPage(start);
       _controller.activate(start);
+      _readActive();
+    });
+  }
+
+  /// Stops speech and any pending auto-advance — the user is busy elsewhere.
+  void _silence() {
+    _advanceTimer?.cancel();
+    _audio.stop();
+  }
+
+  /// Reads the card on screen aloud when read-aloud is on.
+  void _readActive() {
+    if (!_onScreen || !ref.read(settingsProvider).readAloud) return;
+    final cards = ref.read(feedControllerProvider).cards;
+    if (_currentIndex < cards.length) _audio.speak(cards[_currentIndex]);
+  }
+
+  void _toggleReadAloud() {
+    final settings = ref.read(settingsProvider);
+    settings.setReadAloud(!settings.readAloud);
+    if (settings.readAloud) {
+      _readActive();
+    } else {
+      _audio.stop();
+    }
+  }
+
+  /// Reacts to the card on screen resolving: plays the answer sound and,
+  /// if auto-scroll is on, schedules the move to the next card.
+  void _onActiveResolved(FeedCardState card, FeedState feedState) {
+    final settings = ref.read(settingsProvider);
+    if (card.isQuiz && !card.skipped && settings.soundEffects) {
+      _audio.playAnswer(correct: card.isCorrect);
+    }
+    if (!settings.autoAdvance) return;
+    final Duration? delay = switch (card.kind) {
+      FeedCardKind.question || FeedCardKind.trueFalse => card.isCorrect ? _advanceAfterCorrect : null,
+      FeedCardKind.fact || FeedCardKind.flashcard => _advanceAfterRead,
+    };
+    if (delay == null) return;
+    final from = _currentIndex;
+    _advanceTimer?.cancel();
+    _advanceTimer = Timer(delay, () {
+      if (!mounted || !_onScreen || _currentIndex != from || !_pageController.hasClients) return;
+      final itemCount = feedState.cards.length + (feedState.hasMore ? 0 : 1);
+      if (from + 1 >= itemCount) return;
+      _pageController.animateToPage(
+        from + 1,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
@@ -106,6 +175,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
 
     if (newIndex == _currentIndex) return;
+    _silence();
     setState(() => _currentIndex = newIndex);
     if (feedState.showHints) _controller.dismissHints();
     _controller.savePosition(newIndex);
@@ -114,7 +184,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   bool _handleScrollEnd(ScrollEndNotification notification) {
     if (notification.depth == 0 && _pageController.hasClients) {
       final page = _pageController.page?.round();
-      if (page != null) _controller.activate(page);
+      if (page != null) {
+        _controller.activate(page);
+        _readActive();
+      }
     }
     return false;
   }
@@ -182,10 +255,28 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final feedState = ref.watch(feedControllerProvider);
     final streak = ref.watch(streakProvider).value ?? StreakInfo.none;
     final isOnline = ref.watch(isOnlineProvider).value ?? true;
+    final readAloud = ref.watch(settingsProvider.select((s) => s.readAloud));
     final p = context.palette;
     _syncLaneStart(feedState);
 
+    ref.listen<int>(tabIndexProvider, (_, tab) {
+      _onScreen = tab == 0;
+      if (_onScreen) {
+        _readActive();
+      } else {
+        _silence();
+      }
+    });
+
     ref.listen<FeedState>(feedControllerProvider, (previous, next) {
+      final i = _currentIndex;
+      if (previous != null && i < next.cards.length && i < previous.cards.length) {
+        final before = previous.cards[i];
+        final now = next.cards[i];
+        if (before.uid == now.uid && !before.isResolved && now.isResolved) _onActiveResolved(now, next);
+        // Reading the back of a flipped flashcard aloud.
+        if (before.uid == now.uid && !before.flipped && now.flipped && !now.rated) _readActive();
+      }
       if (next.pendingBreakNudge && !(previous?.pendingBreakNudge ?? false)) {
         _showBreakNudge(next);
       }
@@ -220,7 +311,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                   onOpenLanes: _openLaneSwitcher,
                   onOpenMyPrep: _openMyPrep,
                 ),
-                Expanded(child: _buildBody(feedState)),
+                Expanded(child: _buildBody(feedState, readAloud: readAloud)),
               ],
             ),
             Align(
@@ -261,14 +352,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  Widget _buildBody(FeedState feedState) {
+  Widget _buildBody(FeedState feedState, {required bool readAloud}) {
     if (feedState.loading && feedState.cards.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (feedState.cards.isEmpty) return _buildEmptyState(feedState);
 
     final itemCount = feedState.cards.length + (feedState.hasMore ? 0 : 1);
-    return NotificationListener<ScrollEndNotification>(
+    final pages = NotificationListener<ScrollEndNotification>(
       onNotification: _handleScrollEnd,
       child: PageView.builder(
         controller: _pageController,
@@ -315,9 +406,27 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                         FeedLane(type: FeedLaneType.topic, id: 'topic:$topic', label: topic),
                       ),
               onWrongReason: _controller.recordWrongReason,
+              onTrueFalse: (saysTrue) => _controller.answerTrueFalse(index, saysTrue),
+              onFactDone: () => _controller.acknowledgeFact(index),
+              onFlip: () => _controller.flipFlashcard(index),
+              onRate: (rating) => _controller.rateFlashcard(index, rating),
+              soundOn: readAloud,
+              onToggleSound: _toggleReadAloud,
             ),
           );
         },
+      ),
+    );
+
+    return Listener(
+      // Any touch means the user is in control: drop a pending auto-advance.
+      onPointerDown: (_) => _advanceTimer?.cancel(),
+      child: Stack(
+        children: [
+          pages,
+          if (feedState.showHints && _currentIndex == 0)
+            const Positioned(left: 0, right: 0, bottom: 64, child: IgnorePointer(child: _SwipeUpHint())),
+        ],
       ),
     );
   }
@@ -678,6 +787,62 @@ class _EmptyMessage extends StatelessWidget {
           const SizedBox(height: 24),
           FilledButton(onPressed: onAction, child: Text(actionLabel)),
         ],
+      ),
+    );
+  }
+}
+
+/// A gently bouncing "swipe up" cue on the very first card, until the user
+/// swipes once.
+class _SwipeUpHint extends StatefulWidget {
+  const _SwipeUpHint();
+
+  @override
+  State<_SwipeUpHint> createState() => _SwipeUpHintState();
+}
+
+class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderStateMixin {
+  late final AnimationController _bounce = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _bounce.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return AnimatedBuilder(
+      animation: _bounce,
+      builder: (context, child) => Transform.translate(
+        offset: Offset(0, -8 * Curves.easeInOut.transform(_bounce.value)),
+        child: child,
+      ),
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.keyboard_double_arrow_up_rounded, size: 18, color: p.onAccent),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  'Swipe up for the next one',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
+import '../models/topic_style.dart';
+import 'feed_card_bodies.dart';
 import 'option_card.dart';
 import 'question_timer.dart';
 
@@ -15,14 +18,16 @@ const List<String> kWrongAnswerReasons = [
   'Misread it',
 ];
 
-/// One full-screen question in the feed, laid out like an Instagram post.
+/// One full-screen card in the feed, laid out like an Instagram post, on
+/// its topic's own background tint.
 ///
 /// From top to bottom: a caption row (topic, why it was picked, timer),
-/// the question and options, then an action bar (like, explanation,
-/// share, save). Vertical swiping belongs to the enclosing PageView. The
-/// question box handles double-tap to like, long-press for the menu, and
-/// horizontal swipes for the solution or lane switcher. Options sit
-/// outside that region so answering stays instant.
+/// the body for the card's [FeedCardKind] (question and options, True/
+/// False, a "Remember this?" fact, or a flashcard), then an action bar.
+/// Vertical swiping belongs to the enclosing PageView. The question box
+/// handles double-tap to like, long-press for the menu, and horizontal
+/// swipes for the solution or lane switcher. Answer controls sit outside
+/// that region so answering stays instant.
 class FeedQuestionCard extends StatefulWidget {
   final FeedCardState cardState;
   final bool isActive;
@@ -45,6 +50,14 @@ class FeedQuestionCard extends StatefulWidget {
   /// Opens this card's topic as its own lane; null when already in it.
   final VoidCallback? onOpenTopic;
   final ValueChanged<String> onWrongReason;
+  final ValueChanged<bool> onTrueFalse;
+  final VoidCallback onFactDone;
+  final VoidCallback onFlip;
+  final ValueChanged<SrsRating> onRate;
+
+  /// Read-aloud state for the speaker button.
+  final bool soundOn;
+  final VoidCallback onToggleSound;
 
   const FeedQuestionCard({
     super.key,
@@ -65,6 +78,12 @@ class FeedQuestionCard extends StatefulWidget {
     required this.onOpenLaneSwitcher,
     required this.onOpenTopic,
     required this.onWrongReason,
+    required this.onTrueFalse,
+    required this.onFactDone,
+    required this.onFlip,
+    required this.onRate,
+    required this.soundOn,
+    required this.onToggleSound,
   });
 
   @override
@@ -93,7 +112,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     if (!justResolved) return;
     _startPeek();
     final card = widget.cardState;
-    if (card.skipped) return;
+    if (card.skipped || !card.isQuiz) return;
     if (card.isCorrect) {
       _xpPops++;
     } else {
@@ -147,91 +166,145 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     final card = widget.cardState;
     final question = card.question;
     final resolved = card.isResolved;
+    final style = TopicStyle.of(question.topicName);
+    final isQuiz = card.isQuiz;
 
-    final options = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ..._buildOptions(question, card, resolved),
-        if (resolved && _showPeek) _buildPeek(p, question, card),
-        if (resolved && !card.isCorrect && !card.skipped) _buildWrongReasons(p),
-      ],
-    );
+    final Widget answers = switch (card.kind) {
+      FeedCardKind.question => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ..._buildOptions(question, card, resolved),
+          if (resolved && _showPeek) _buildPeek(p, question, card),
+          if (resolved && !card.isCorrect && !card.skipped) _buildWrongReasons(p),
+        ],
+      ),
+      FeedCardKind.trueFalse => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TrueFalseBody(card: card, onAnswer: widget.onTrueFalse),
+          const SizedBox(height: 8),
+          if (resolved && _showPeek) _buildPeek(p, question, card),
+        ],
+      ),
+      _ => const SizedBox.shrink(),
+    };
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _Caption(
-              topic: question.topicName,
-              reason: card.reason,
-              onTopicTap: widget.onOpenTopic,
-              onMore: widget.onMore,
-              timer: QuestionTimer(
-                paused: _paused || !widget.isActive || resolved,
-                color: p.textMuted,
+    final Widget body = switch (card.kind) {
+      FeedCardKind.fact => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: _handleDoubleTap,
+        onLongPressStart: _handleLongPressStart,
+        onLongPressEnd: _handleLongPressEnd,
+        onHorizontalDragEnd: _handleHorizontalDragEnd,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [FactBody(card: card), _Heart(show: _showHeart)],
+        ),
+      ),
+      FeedCardKind.flashcard => FlashcardBody(card: card, onFlip: widget.onFlip, onRate: widget.onRate),
+      _ => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onDoubleTap: _handleDoubleTap,
+            onLongPressStart: _handleLongPressStart,
+            onLongPressEnd: _handleLongPressEnd,
+            onHorizontalDragEnd: _handleHorizontalDragEnd,
+            child: _QuestionBox(text: question.questionText, showHeart: _showHeart),
+          ),
+          if (widget.showGestureHint)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'double-tap to like · swipe left for solution · swipe right for lanes',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall!.copyWith(fontSize: 11),
               ),
             ),
-            if (widget.positionInLane != null)
-              _LaneProgress(position: widget.positionInLane!, length: widget.laneLength),
-            const SizedBox(height: 8),
-            Expanded(
-              child: Stack(
-                children: [
-                  LayoutBuilder(
-                    builder: (context, constraints) => SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onDoubleTap: _handleDoubleTap,
-                              onLongPressStart: _handleLongPressStart,
-                              onLongPressEnd: _handleLongPressEnd,
-                              onHorizontalDragEnd: _handleHorizontalDragEnd,
-                              child: _QuestionBox(text: question.questionText, showHeart: _showHeart),
-                            ),
-                            if (widget.showGestureHint)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  'double-tap to like · swipe left for solution · swipe right for lanes',
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context).textTheme.bodySmall!.copyWith(fontSize: 11),
-                                ),
-                              ),
-                            const SizedBox(height: 12),
-                            _shakes == 0 ? options : _Shake(key: ValueKey(_shakes), child: options),
-                          ],
+          const SizedBox(height: 12),
+          _shakes == 0 ? answers : _Shake(key: ValueKey(_shakes), child: answers),
+        ],
+      ),
+    };
+
+    return ColoredBox(
+      color: style.tint(Theme.of(context).brightness),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _Caption(
+                topic: question.topicName,
+                icon: style.icon,
+                reason: card.reason,
+                onTopicTap: widget.onOpenTopic,
+                onMore: widget.onMore,
+                soundOn: widget.soundOn,
+                onToggleSound: widget.onToggleSound,
+                timer: isQuiz
+                    ? QuestionTimer(
+                        paused: _paused || !widget.isActive || resolved,
+                        color: p.textMuted,
+                      )
+                    : null,
+              ),
+              if (card.kind == FeedCardKind.fact)
+                StoryBar(
+                  key: ValueKey('story-${card.uid}'),
+                  duration: factReadingTime(question),
+                  running: widget.isActive && !_paused,
+                  done: card.acknowledged,
+                  onDone: widget.onFactDone,
+                )
+              else if (widget.positionInLane != null)
+                _LaneProgress(position: widget.positionInLane!, length: widget.laneLength),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Stack(
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) => SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [body],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  if (_xpPops > 0)
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      child: IgnorePointer(child: _XpPop(key: ValueKey(_xpPops))),
-                    ),
-                ],
+                    if (_xpPops > 0)
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                          child: _XpPop(
+                            key: ValueKey(_xpPops),
+                            xp: card.kind == FeedCardKind.trueFalse ? kFeedXpPerTrueFalse : kFeedXpPerCorrect,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            _ActionBar(
-              card: card,
-              focusMode: widget.focusMode,
-              onToggleLike: widget.onToggleLike,
-              onExplain: widget.onExplain,
-              onShare: widget.onShare,
-              onSkip: widget.onSkip,
-              onToggleSave: widget.onToggleSave,
-            ),
-          ],
+              _ActionBar(
+                card: card,
+                focusMode: widget.focusMode,
+                onToggleLike: widget.onToggleLike,
+                onExplain: widget.onExplain,
+                onShare: widget.onShare,
+                onSkip: widget.onSkip,
+                onFactDone: widget.onFactDone,
+                onToggleSave: widget.onToggleSave,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -327,16 +400,22 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
 /// "more" menu — the author line of an Instagram post.
 class _Caption extends StatelessWidget {
   final String topic;
+  final IconData icon;
   final String? reason;
   final VoidCallback? onTopicTap;
   final VoidCallback onMore;
-  final Widget timer;
+  final Widget? timer;
+  final bool soundOn;
+  final VoidCallback onToggleSound;
 
   const _Caption({
     required this.topic,
+    required this.icon,
     required this.reason,
     required this.onTopicTap,
     required this.onMore,
+    required this.soundOn,
+    required this.onToggleSound,
     required this.timer,
   });
 
@@ -344,7 +423,6 @@ class _Caption extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final text = Theme.of(context).textTheme;
-    final initial = topic.trim().isEmpty ? '?' : topic.trim()[0].toUpperCase();
     return SizedBox(
       height: 40,
       child: Row(
@@ -360,10 +438,7 @@ class _Caption extends StatelessWidget {
                     height: 28,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(color: p.accent, shape: BoxShape.circle),
-                    child: Text(
-                      initial,
-                      style: text.labelMedium!.copyWith(color: p.onAccent, fontWeight: FontWeight.w800),
-                    ),
+                    child: Icon(icon, size: 16, color: p.onAccent),
                   ),
                   const SizedBox(width: 8),
                   Flexible(
@@ -388,9 +463,23 @@ class _Caption extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          timer,
+          ?timer,
+          IconButton(
+            tooltip: soundOn ? 'Stop reading aloud' : 'Read aloud',
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              onToggleSound();
+            },
+            icon: Icon(
+              soundOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+              size: 20,
+              color: soundOn ? p.accentText : p.textMuted,
+            ),
+          ),
           IconButton(
             tooltip: 'More',
+            visualDensity: VisualDensity.compact,
             onPressed: onMore,
             icon: Icon(Icons.more_horiz_rounded, color: p.textMuted),
           ),
@@ -450,25 +539,39 @@ class _QuestionBox extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium!.copyWith(fontSize: 19, height: 1.4),
           ),
         ),
-        IgnorePointer(
-          child: AnimatedOpacity(
-            opacity: showHeart ? 1 : 0,
-            duration: const Duration(milliseconds: 200),
-            child: AnimatedScale(
-              scale: showHeart ? 1.0 : 0.6,
-              duration: const Duration(milliseconds: 200),
-              child: Icon(Icons.favorite_rounded, color: p.like, size: 84),
-            ),
-          ),
-        ),
+        _Heart(show: showHeart),
       ],
+    );
+  }
+}
+
+/// The big heart that pops on double-tap.
+class _Heart extends StatelessWidget {
+  final bool show;
+
+  const _Heart({required this.show});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedOpacity(
+        opacity: show ? 1 : 0,
+        duration: const Duration(milliseconds: 200),
+        child: AnimatedScale(
+          scale: show ? 1.0 : 0.6,
+          duration: const Duration(milliseconds: 200),
+          child: Icon(Icons.favorite_rounded, color: context.palette.like, size: 84),
+        ),
+      ),
     );
   }
 }
 
 /// "+10 XP" floating up and fading out once, when an answer is correct.
 class _XpPop extends StatelessWidget {
-  const _XpPop({super.key});
+  final int xp;
+
+  const _XpPop({super.key, required this.xp});
 
   @override
   Widget build(BuildContext context) {
@@ -488,7 +591,7 @@ class _XpPop extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
                 child: Text(
-                  '+$kFeedXpPerCorrect XP',
+                  '+$xp XP',
                   style: Theme.of(context).textTheme.labelLarge!.copyWith(
                     color: p.onAccent,
                     fontWeight: FontWeight.w800,
@@ -530,6 +633,7 @@ class _ActionBar extends StatelessWidget {
   final VoidCallback onExplain;
   final VoidCallback onShare;
   final VoidCallback onSkip;
+  final VoidCallback onFactDone;
   final VoidCallback onToggleSave;
 
   const _ActionBar({
@@ -539,12 +643,38 @@ class _ActionBar extends StatelessWidget {
     required this.onExplain,
     required this.onShare,
     required this.onSkip,
+    required this.onFactDone,
     required this.onToggleSave,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final isFlashcard = card.kind == FeedCardKind.flashcard;
+
+    Widget? trailingAction() {
+      if (card.isResolved) return null;
+      if (card.isQuiz) {
+        return TextButton(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            onSkip();
+          },
+          child: Text(focusMode ? 'Skip ›' : 'Show answer', maxLines: 1, overflow: TextOverflow.ellipsis),
+        );
+      }
+      if (card.kind == FeedCardKind.fact) {
+        return TextButton(
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            onFactDone();
+          },
+          child: const Text('Got it', maxLines: 1),
+        );
+      }
+      return null;
+    }
+
     return SizedBox(
       height: 48,
       child: Row(
@@ -560,30 +690,25 @@ class _ActionBar extends StatelessWidget {
               color: card.liked ? p.like : p.text,
             ),
           ),
-          IconButton(tooltip: 'Explanation', onPressed: onExplain, icon: const Icon(Icons.mode_comment_outlined)),
-          IconButton(tooltip: 'Share', onPressed: onShare, icon: const Icon(Icons.send_rounded)),
+          if (!isFlashcard) ...[
+            IconButton(tooltip: 'Explanation', onPressed: onExplain, icon: const Icon(Icons.mode_comment_outlined)),
+            IconButton(tooltip: 'Share', onPressed: onShare, icon: const Icon(Icons.send_rounded)),
+          ],
           Expanded(
-            child: card.isResolved
-                ? const SizedBox.shrink()
-                : Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        HapticFeedback.lightImpact();
-                        onSkip();
-                      },
-                      child: Text(focusMode ? 'Skip ›' : 'Show answer', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ),
-                  ),
-          ),
-          IconButton(
-            tooltip: card.bookmarked ? 'Remove from saved' : 'Save',
-            onPressed: onToggleSave,
-            icon: Icon(
-              card.bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-              color: card.bookmarked ? p.accentText : p.text,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: trailingAction() ?? const SizedBox.shrink(),
             ),
           ),
+          if (!isFlashcard)
+            IconButton(
+              tooltip: card.bookmarked ? 'Remove from saved' : 'Save',
+              onPressed: onToggleSave,
+              icon: Icon(
+                card.bookmarked ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+                color: card.bookmarked ? p.accentText : p.text,
+              ),
+            ),
         ],
       ),
     );

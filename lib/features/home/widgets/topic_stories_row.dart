@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../feed/models/topic_style.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 
@@ -57,8 +58,7 @@ class _TopicStory extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final text = Theme.of(context).textTheme;
-    final trimmed = story.topic.trim();
-    final initial = trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+    final style = TopicStyle.of(story.topic);
     final ringColor = story.hasUnseen ? p.accentText : p.border;
 
     return Semantics(
@@ -83,9 +83,11 @@ class _TopicStory extends StatelessWidget {
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: p.surfaceHigh,
+                    // Same tint and icon as this topic's cards in the feed.
+                    color: style.tint(Theme.of(context).brightness),
+                    border: Border.all(color: p.border),
                   ),
-                  child: Text(initial, style: text.headlineSmall!.copyWith(color: p.accentText)),
+                  child: Icon(style.icon, size: 26, color: p.accentText),
                 ),
               ),
               const SizedBox(height: 6),

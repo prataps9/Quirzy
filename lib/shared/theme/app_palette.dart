@@ -167,3 +167,28 @@ class AppSpace {
   static const double xl = 24;
   static const double xxl = 32;
 }
+
+/// Per-topic card backgrounds (see TopicStyle): deep tinted surfaces for
+/// dark mode, pale tints for light mode. Body and muted text stay at 4.5:1
+/// or better on every one (checked in test/design/palette_contrast_test).
+const kTopicTintsDark = [
+  Color(0xFF121A2B), // blue
+  Color(0xFF11211A), // green
+  Color(0xFF241D10), // amber
+  Color(0xFF261219), // rose
+  Color(0xFF10221F), // teal
+  Color(0xFF26170F), // orange
+  Color(0xFF0F1E26), // sky
+  Color(0xFF182110), // lime
+];
+
+const kTopicTintsLight = [
+  Color(0xFFE8EFFC),
+  Color(0xFFE4F5EA),
+  Color(0xFFFBF1DC),
+  Color(0xFFFBE7EC),
+  Color(0xFFE0F4F1),
+  Color(0xFFFCEBDD),
+  Color(0xFFE2F2FA),
+  Color(0xFFEEF6DA),
+];

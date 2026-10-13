@@ -28,6 +28,14 @@ void main() {
     final p = entry.value;
 
     group('$name palette', () {
+      test('text stays readable on every topic tint', () {
+        final tints = name == 'dark' ? kTopicTintsDark : kTopicTintsLight;
+        for (final tint in tints) {
+          expect(contrast(p.text, tint), greaterThanOrEqualTo(minimum));
+          expect(contrast(p.textMuted, tint), greaterThanOrEqualTo(minimum));
+        }
+      });
+
       test('body text is readable on every surface', () {
         for (final background in [p.bg, p.surface, p.surfaceHigh]) {
           expect(contrast(p.text, background), greaterThanOrEqualTo(minimum));

@@ -113,6 +113,7 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_staggered_grid_view: ^0.7.0
   flutter_timezone: ^5.1.1
+  audioplayers: ^6.5.1
 
 flutter_launcher_icons:
   android: true
@@ -178,6 +179,7 @@ flutter:
     - assets/
     - assets/icon/
     - assets/google_fonts/
+    - assets/sounds/
     - assets/google_logo.png
 
   # An image asset can refer to one or more resolution-specific "variants", see

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,7 +7,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/screens/feed_screen.dart';
+import 'package:quirzy/features/feed/services/feed_mixer.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
+import 'package:quirzy/shared/services/settings_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../support/side_effect_fakes.dart';
@@ -30,7 +34,12 @@ PracticeQuestion _q(String topic, int n, {bool long = false}) {
   );
 }
 
-Future<void> _pumpFeed(WidgetTester tester, List<PracticeQuestion> pool) async {
+Future<void> _pumpFeed(
+  WidgetTester tester,
+  List<PracticeQuestion> pool, {
+  FakeFeedAudio? audio,
+  FeedMixer? mixer,
+}) async {
   tester.view
     ..physicalSize = const Size(1080, 1920)
     ..devicePixelRatio = 3;
@@ -40,7 +49,7 @@ Future<void> _pumpFeed(WidgetTester tester, List<PracticeQuestion> pool) async {
     ProviderScope(
       overrides: [
         feedQuestionPoolProvider.overrideWith((ref) async => pool),
-        ...sideEffectOverrides(),
+        ...sideEffectOverrides(audio: audio, mixer: mixer),
         isOnlineProvider.overrideWith((ref) => Stream.value(true)),
       ],
       child: const MaterialApp(home: FeedScreen()),
@@ -66,10 +75,127 @@ Future<void> _swipeUp(WidgetTester tester) async {
   }
 }
 
+double _page(WidgetTester tester) => tester.widget<PageView>(find.byType(PageView)).controller!.page!;
+
+Future<void> _answer(WidgetTester tester, String option) async {
+  final target = find.descendant(
+    of: find.byKey(const ValueKey('feed_card_0')),
+    matching: find.text(option),
+  );
+  await tester.tap(target);
+  await tester.pump(const Duration(milliseconds: 50));
+}
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     GoogleFonts.config.allowRuntimeFetching = false;
+    // SettingsService is a process-wide singleton: reset feed preferences.
+    SettingsService()
+      ..setAutoAdvance(true)
+      ..setReadAloud(false)
+      ..setSoundEffects(false);
+  });
+
+  group('auto-scroll', () {
+    final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
+
+    testWidgets('a correct answer moves to the next card on its own', (tester) async {
+      await _pumpFeed(tester, pool);
+      await _answer(tester, 'Option A');
+      expect(_page(tester), 0);
+      await tester.pump(const Duration(milliseconds: 1300));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(_page(tester), closeTo(1, 0.01));
+      await _tearDown(tester);
+    });
+
+    testWidgets('a wrong answer stays put so the explanation can be read', (tester) async {
+      await _pumpFeed(tester, pool);
+      await _answer(tester, 'Option B');
+      await tester.pump(const Duration(seconds: 3));
+      expect(_page(tester), 0);
+      await _tearDown(tester);
+    });
+
+    testWidgets('does nothing when turned off in Profile', (tester) async {
+      SettingsService().setAutoAdvance(false);
+      await _pumpFeed(tester, pool);
+      await _answer(tester, 'Option A');
+      await tester.pump(const Duration(seconds: 3));
+      expect(_page(tester), 0);
+      await _tearDown(tester);
+    });
+
+    testWidgets('any touch after answering cancels the move', (tester) async {
+      await _pumpFeed(tester, pool);
+      await _answer(tester, 'Option A');
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tapAt(const Offset(180, 40));
+      await tester.pump(const Duration(seconds: 3));
+      expect(_page(tester), 0);
+      await _tearDown(tester);
+    });
+  });
+
+  testWidgets('True/False cards answer with one tap and move on when right', (tester) async {
+    await _pumpFeed(
+      tester,
+      [for (var i = 0; i < 20; i++) _q('Math', i)],
+      mixer: FeedMixer(random: math.Random(4), trueFalseShare: 1),
+    );
+    final card = find.byKey(const ValueKey('feed_card_0'));
+    expect(find.descendant(of: card, matching: find.text('Is this the answer?')), findsOneWidget);
+
+    // The shown option is right only if it is "Option A".
+    final saysTrue = find.descendant(of: card, matching: find.text('Option A')).evaluate().isNotEmpty;
+    await tester.tap(find.descendant(of: card, matching: find.text(saysTrue ? 'True' : 'False')));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.descendant(of: card, matching: find.text('+5 XP')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(_page(tester), closeTo(1, 0.01));
+    await _tearDown(tester);
+  });
+
+  group('sound', () {
+    final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
+
+    testWidgets('reads the card aloud, and stops when you swipe on', (tester) async {
+      SettingsService()
+        ..setReadAloud(true)
+        ..setAutoAdvance(false);
+      final audio = FakeFeedAudio();
+      await _pumpFeed(tester, pool, audio: audio);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(audio.spoken, isNotEmpty);
+      expect(audio.spoken.first, contains('What is the answer'));
+      expect(audio.spoken.first, contains('A. Option A.'));
+
+      final stopsBefore = audio.stops;
+      await _swipeUp(tester);
+      expect(audio.stops, greaterThan(stopsBefore));
+      expect(audio.spoken.length, greaterThanOrEqualTo(2));
+      await _tearDown(tester);
+    });
+
+    testWidgets('plays the right or wrong sound only when turned on', (tester) async {
+      final audio = FakeFeedAudio();
+      await _pumpFeed(tester, pool, audio: audio);
+      await _answer(tester, 'Option B');
+      expect(audio.sounds, isEmpty);
+      expect(audio.spoken, isEmpty, reason: 'read-aloud is off by default');
+      await _tearDown(tester);
+
+      SettingsService().setSoundEffects(true);
+      final audio2 = FakeFeedAudio();
+      await _pumpFeed(tester, pool, audio: audio2);
+      await _answer(tester, 'Option B');
+      expect(audio2.sounds, [false]);
+      await _tearDown(tester);
+    });
   });
 
   testWidgets('For You renders on a 360x640 phone with long content', (tester) async {

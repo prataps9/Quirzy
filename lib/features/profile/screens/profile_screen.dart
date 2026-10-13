@@ -138,6 +138,33 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
               ),
             ),
             const SizedBox(height: 24),
+            _GroupTitle('Practice feed'),
+            _SettingsGroup(
+              children: [
+                _SwitchRow(
+                  icon: Icons.keyboard_double_arrow_up_rounded,
+                  title: 'Auto-scroll',
+                  subtitle: 'Move to the next card after a correct answer',
+                  value: settings.autoAdvance,
+                  onChanged: settings.setAutoAdvance,
+                ),
+                _SwitchRow(
+                  icon: Icons.record_voice_over_rounded,
+                  title: 'Read questions aloud',
+                  subtitle: 'Uses your phone\'s text-to-speech voice',
+                  value: settings.readAloud,
+                  onChanged: settings.setReadAloud,
+                ),
+                _SwitchRow(
+                  icon: Icons.music_note_rounded,
+                  title: 'Sound effects',
+                  subtitle: 'A short sound for right and wrong answers',
+                  value: settings.soundEffects,
+                  onChanged: settings.setSoundEffects,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
             _GroupTitle('Settings'),
             _SettingsGroup(
               children: [
@@ -521,6 +548,60 @@ class _SettingsRow extends StatelessWidget {
             else
               Icon(Icons.chevron_right_rounded, color: p.textMuted),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SwitchRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    return MergeSemantics(
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onChanged(!value);
+        },
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: p.accentSoft, shape: BoxShape.circle),
+                child: Icon(icon, color: p.accentText, size: 20),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: text.titleSmall),
+                    Text(subtitle, style: text.bodySmall),
+                  ],
+                ),
+              ),
+              Switch(value: value, onChanged: onChanged),
+            ],
+          ),
         ),
       ),
     );
