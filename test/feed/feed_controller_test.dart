@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
+import 'package:quirzy/features/feed/services/feed_mixer.dart';
 import 'package:quirzy/features/feed/services/feed_ranker.dart';
+import 'package:quirzy/features/flashcards/services/flashcard_cache.dart';
+import 'package:quirzy/features/flashcards/services/srs_service.dart';
 import 'package:quirzy/features/feed/services/streak_service.dart';
 import 'package:quirzy/features/feed/services/xp_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,11 +26,12 @@ Future<ProviderContainer> _loadedFeed(
   List<PracticeQuestion> pool, {
   FakeLeaderboardSync? leaderboard,
   FakeNotificationScheduler? scheduler,
+  FeedMixer? mixer,
 }) async {
   final container = ProviderContainer(
     overrides: [
       feedQuestionPoolProvider.overrideWith((ref) async => pool),
-      ...sideEffectOverrides(leaderboard: leaderboard, scheduler: scheduler),
+      ...sideEffectOverrides(leaderboard: leaderboard, scheduler: scheduler, mixer: mixer),
       feedRankerProvider.overrideWithValue(
         FeedRanker(random: math.Random(1)),
       ),
@@ -198,5 +202,112 @@ void main() {
     expect(container.read(feedControllerProvider).cards.first.liked, isTrue);
     controller.toggleLike(0);
     expect(container.read(feedControllerProvider).cards.first.liked, isFalse);
+  });
+
+  group('mixed cards', () {
+    test('True/False answers count as practice and earn half XP', () async {
+      final container = await _loadedFeed(
+        pool,
+        mixer: FeedMixer(random: math.Random(2), trueFalseShare: 1),
+      );
+      final controller = container.read(feedControllerProvider.notifier);
+      final cards = container.read(feedControllerProvider).cards;
+      final index = cards.indexWhere((c) => c.kind == FeedCardKind.trueFalse);
+      expect(index, greaterThanOrEqualTo(0));
+      final card = cards[index];
+
+      controller.activate(index);
+      await controller.answerTrueFalse(index, card.tfStatementTrue);
+
+      final state = container.read(feedControllerProvider);
+      expect(state.cards[index].isResolved, isTrue);
+      expect(state.cards[index].isCorrect, isTrue);
+      expect(state.combo, 1);
+      expect(state.todayAnswered, 1);
+      expect(await container.read(xpServiceProvider).getXPTotal(), kFeedXpPerTrueFalse);
+
+      // Option taps don't apply to a True/False card.
+      await controller.selectOption(index, 0);
+      expect(container.read(feedControllerProvider).todayAnswered, 1);
+    });
+
+    test('a wrong True/False verdict resets the combo', () async {
+      final container = await _loadedFeed(
+        pool,
+        mixer: FeedMixer(random: math.Random(2), trueFalseShare: 1),
+      );
+      final controller = container.read(feedControllerProvider.notifier);
+      final cards = container.read(feedControllerProvider).cards;
+      final index = cards.indexWhere((c) => c.kind == FeedCardKind.trueFalse);
+      await controller.answerTrueFalse(index, !cards[index].tfStatementTrue);
+
+      final state = container.read(feedControllerProvider);
+      expect(state.cards[index].isCorrect, isFalse);
+      expect(state.combo, 0);
+      expect(await container.read(xpServiceProvider).getXPTotal(), 0);
+    });
+
+    test('due flashcards are mixed in and rating one counts toward the streak', () async {
+      await FlashcardCache.save({
+        'id': 'set1',
+        'title': 'Optics',
+        'cards': [
+          {'front': 'Focal length of a plane mirror?', 'back': 'Infinite'},
+        ],
+      });
+      // Started yesterday and due now.
+      await SrsService().rateCard('set1', 0, SrsRating.again);
+      final prefs = await SharedPreferences.getInstance();
+      final srs = prefs.getString('srs_v1')!.replaceAll(RegExp(r'"d":"[^"]+"'), '"d":"2020-01-01T00:00:00.000"');
+      await prefs.setString('srs_v1', srs);
+      await prefs.remove(StreakService.flashcardKey(DateTime.now()));
+
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      final cards = container.read(feedControllerProvider).cards;
+      final index = cards.indexWhere((c) => c.kind == FeedCardKind.flashcard);
+      expect(index, greaterThanOrEqualTo(FeedMixer.minQuizBetween));
+      expect(cards[index].flashcard!.back, 'Infinite');
+      expect(cards[index].question.topicName, 'Optics');
+
+      controller.activate(index);
+      controller.flipFlashcard(index);
+      await controller.rateFlashcard(index, SrsRating.good);
+
+      final state = container.read(feedControllerProvider);
+      expect(state.cards[index].rated, isTrue);
+      expect(state.todayAnswered, 0, reason: 'flashcards are not feed answers');
+      expect((await container.read(streakProvider.future)).practisedToday, isTrue);
+      expect(await SrsService().dueStartedKeys(), isEmpty);
+    });
+
+    test('facts are read, not answered', () async {
+      final why = 'Option A is right because it follows from the definition used in class.';
+      final factPool = [
+        for (var i = 0; i < 30; i++)
+          PracticeQuestion(
+            id: 'f$i',
+            questionText: 'Fact question $i',
+            options: const ['A', 'B', 'C', 'D'],
+            correctIndex: 0,
+            explanation: why,
+            topic: 'Physics',
+          ),
+      ];
+      final container = await _loadedFeed(factPool);
+      final controller = container.read(feedControllerProvider.notifier);
+      // Miss one so it lands in the revision vault, then reload For You.
+      await controller.selectOption(0, 1);
+      await controller.refreshForYou();
+
+      final cards = container.read(feedControllerProvider).cards;
+      final index = cards.indexWhere((c) => c.kind == FeedCardKind.fact);
+      expect(index, greaterThanOrEqualTo(0));
+      final before = container.read(feedControllerProvider).todayAnswered;
+      controller.acknowledgeFact(index);
+      final state = container.read(feedControllerProvider);
+      expect(state.cards[index].isResolved, isTrue);
+      expect(state.todayAnswered, before);
+    });
   });
 }

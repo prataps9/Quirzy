@@ -65,6 +65,13 @@ class FeedRevisionService {
 
   Future<int> getDueCount() async => (await getDueQuestions()).length;
 
+  /// Every question still in the vault — ones the user has missed and not
+  /// yet mastered — most recently missed first.
+  Future<List<PracticeQuestion>> getMissedQuestions() async {
+    final entries = await _load();
+    return entries.reversed.map((e) => e.question).toList();
+  }
+
   /// Called after every feed answer (wrong OR right). Only questions that
   /// have entered the vault via a wrong answer ever progress or graduate.
   Future<void> recordOutcome(PracticeQuestion question, bool correct) async {

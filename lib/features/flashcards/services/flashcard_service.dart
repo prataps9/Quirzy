@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:appwrite/appwrite.dart';
 import '../../../shared/appwrite/appwrite_client.dart';
+import 'flashcard_cache.dart';
 
 /// Flashcard Service using Appwrite
 class FlashcardService {
@@ -90,7 +91,7 @@ class FlashcardService {
         queries: [Query.equal('setId', setId), Query.orderAsc('cardNumber')],
       );
 
-      return {
+      final result = {
         'id': set.$id,
         'title': set.data['title'],
         'topic': set.data['topic'],
@@ -105,6 +106,9 @@ class FlashcardService {
           };
         }).toList(),
       };
+      // Keep the text on the device so due cards can show up in the feed.
+      await FlashcardCache.save(result);
+      return result;
     } on AppwriteException catch (e) {
       throw Exception(e.message ?? 'Flashcard set not found');
     }

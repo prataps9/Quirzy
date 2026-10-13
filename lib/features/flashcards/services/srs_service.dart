@@ -111,6 +111,14 @@ class SrsService {
     return card;
   }
 
+  /// Keys (`<setId>_<index>`) of cards already started in Cards that are
+  /// due now, most overdue first. Brand-new cards are left to Cards.
+  Future<List<String>> dueStartedKeys() async {
+    final cards = (await _loadAll()).values.where((c) => c.isDue).toList()
+      ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
+    return [for (final c in cards) c.key];
+  }
+
   /// Forgets the review schedule of every card in [setId] (after deleting it).
   Future<void> removeSet(String setId) async {
     final cards = await _loadAll();

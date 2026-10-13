@@ -12,6 +12,7 @@ import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../onboarding/screens/screens.dart';
+import '../services/flashcard_cache.dart';
 import '../services/flashcard_prefs.dart';
 import '../services/recommended_topics.dart';
 import '../services/srs_service.dart';
@@ -360,6 +361,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       await ref.read(flashcardServiceProvider).deleteFlashcardSet(setId);
       await ref.read(flashcardPrefsProvider.notifier).remove(setId);
       await SrsService().removeSet(setId);
+      await FlashcardCache.remove(setId);
       if (!mounted) return;
       setState(() => _flashcardSets.removeWhere((s) => s['id'] == setId));
       _showSnackBar('Set deleted');

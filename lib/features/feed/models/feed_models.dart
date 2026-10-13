@@ -115,12 +115,60 @@ class FeedLane {
   );
 }
 
-/// Per-question state within the currently loaded lane.
+/// What a card in the feed is. Everything except [question] is mixed into
+/// For You from content already on the device.
+enum FeedCardKind {
+  /// A multiple-choice question.
+  question,
+
+  /// "Is this the answer?" — the stem with one shown option.
+  trueFalse,
+
+  /// "Remember this?" — a question you missed, with its answer and
+  /// explanation, read like a story.
+  fact,
+
+  /// A due flashcard from Cards, flipped and rated in the feed.
+  flashcard,
+}
+
+/// A flashcard shown in the feed, from a set cached on the device.
+class FeedFlashcard {
+  final String setId;
+  final int index;
+  final String front;
+  final String back;
+  final String setTitle;
+
+  const FeedFlashcard({
+    required this.setId,
+    required this.index,
+    required this.front,
+    required this.back,
+    required this.setTitle,
+  });
+
+  /// The key [SrsService] stores this card's schedule under.
+  String get srsKey => '${setId}_$index';
+
+  /// A stand-in question so topic chips, sharing and dwell tracking work
+  /// the same for every card.
+  PracticeQuestion toQuestion() => PracticeQuestion(
+    id: 'flashcard:$srsKey',
+    questionText: front,
+    options: [back],
+    correctIndex: 0,
+    topic: setTitle,
+  );
+}
+
+/// Per-card state within the currently loaded lane.
 ///
 /// [uid] is unique per card instance (the same question can appear twice
 /// in an endless feed) and is what the page view keys on.
 class FeedCardState {
   final int uid;
+  final FeedCardKind kind;
   final PracticeQuestion question;
   final int? selectedOption;
   final bool skipped;
@@ -133,29 +181,71 @@ class FeedCardState {
   /// Inserted on request (Deep Dive "Similar"), so re-ranking keeps it.
   final bool pinned;
 
+  /// True/False: the option shown, and what the user answered.
+  final int? tfShownOption;
+  final bool? tfChoice;
+
+  /// Fact: read to the end (or tapped through).
+  final bool acknowledged;
+
+  /// Flashcard: the card, whether it was flipped, and whether it was rated.
+  final FeedFlashcard? flashcard;
+  final bool flipped;
+  final bool rated;
+
   const FeedCardState({
     required this.uid,
     required this.question,
+    this.kind = FeedCardKind.question,
     this.selectedOption,
     this.skipped = false,
     this.bookmarked = false,
     this.liked = false,
     this.reason,
     this.pinned = false,
+    this.tfShownOption,
+    this.tfChoice,
+    this.acknowledged = false,
+    this.flashcard,
+    this.flipped = false,
+    this.rated = false,
   });
 
-  bool get isResolved => selectedOption != null || skipped;
-  bool get isCorrect =>
-      selectedOption != null && selectedOption == question.correctIndex;
+  /// Whether the shown True/False option is the right answer.
+  bool get tfStatementTrue => tfShownOption == question.correctIndex;
+
+  bool get isResolved => switch (kind) {
+    FeedCardKind.question => selectedOption != null || skipped,
+    FeedCardKind.trueFalse => tfChoice != null || skipped,
+    FeedCardKind.fact => acknowledged,
+    FeedCardKind.flashcard => rated,
+  };
+
+  bool get isCorrect => switch (kind) {
+    FeedCardKind.question => selectedOption != null && selectedOption == question.correctIndex,
+    FeedCardKind.trueFalse => tfChoice != null && tfChoice == tfStatementTrue,
+    _ => false,
+  };
+
+  /// Cards the ranker queued (and must release when they are dropped).
+  bool get fromRanker => kind == FeedCardKind.question || kind == FeedCardKind.trueFalse;
+
+  /// Cards that are answered for stats, XP and the daily goal.
+  bool get isQuiz => fromRanker;
 
   FeedCardState copyWith({
     int? selectedOption,
     bool? skipped,
     bool? bookmarked,
     bool? liked,
+    bool? tfChoice,
+    bool? acknowledged,
+    bool? flipped,
+    bool? rated,
   }) {
     return FeedCardState(
       uid: uid,
+      kind: kind,
       question: question,
       selectedOption: selectedOption ?? this.selectedOption,
       skipped: skipped ?? this.skipped,
@@ -163,12 +253,21 @@ class FeedCardState {
       liked: liked ?? this.liked,
       reason: reason,
       pinned: pinned,
+      tfShownOption: tfShownOption,
+      tfChoice: tfChoice ?? this.tfChoice,
+      acknowledged: acknowledged ?? this.acknowledged,
+      flashcard: flashcard,
+      flipped: flipped ?? this.flipped,
+      rated: rated ?? this.rated,
     );
   }
 }
 
 /// XP for a correct answer, and the bonus for each combo milestone.
 const int kFeedXpPerCorrect = 10;
+
+/// True/False is a coin flip to guess, so it is worth half.
+const int kFeedXpPerTrueFalse = 5;
 const int kFeedComboBonusXp = 10;
 
 /// A combo milestone fires every this many correct answers in a row.

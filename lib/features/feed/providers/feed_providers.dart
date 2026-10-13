@@ -6,9 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/services/notification_scheduler.dart';
 import '../../home/providers/home_stats_provider.dart';
+import '../../flashcards/services/flashcard_cache.dart';
+import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
 import '../services/feed_bookmark_service.dart';
 import '../services/feed_engagement_service.dart';
+import '../services/feed_mixer.dart';
 import '../services/feed_ranker.dart';
 import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
@@ -34,6 +37,16 @@ final feedStatsServiceProvider = Provider<FeedStatsService>((ref) => FeedStatsSe
 final feedBookmarkServiceProvider = Provider<FeedBookmarkService>((ref) => FeedBookmarkService());
 final feedRevisionServiceProvider = Provider<FeedRevisionService>((ref) => FeedRevisionService());
 final feedRankerProvider = Provider<FeedRanker>((ref) => FeedRanker());
+final feedMixerProvider = Provider<FeedMixer>((ref) => FeedMixer());
+final srsServiceProvider = Provider<SrsService>((ref) => SrsService());
+
+/// Due flashcards (already started in Cards) whose text is cached on the
+/// device, most overdue first — the feed slots these in between questions.
+final dueFeedFlashcardsProvider = FutureProvider<List<FeedFlashcard>>((ref) async {
+  final keys = await ref.watch(srsServiceProvider).dueStartedKeys();
+  final cached = await FlashcardCache.cardsByKey();
+  return [for (final key in keys) ?cached[key]];
+});
 
 /// The full local question pool the feed draws from — see
 /// PracticeContentService.
@@ -146,6 +159,12 @@ class FeedController extends Notifier<FeedState> {
   Set<String> _dueKeys = {};
   Map<String, TopicStat> _topicStats = {};
 
+  /// Fact and flashcard candidates for mixing, minus ones already shown
+  /// this session.
+  List<PracticeQuestion> _facts = [];
+  List<FeedFlashcard> _dueFlashcards = [];
+  final Set<String> _shownExtras = {};
+
   int _nextUid = 0;
   int _rewardId = 0;
   int? _activeIndex;
@@ -160,6 +179,7 @@ class FeedController extends Notifier<FeedState> {
 
   FeedEngagementService get _engagement => ref.read(feedEngagementServiceProvider);
   FeedRanker get _ranker => ref.read(feedRankerProvider);
+  FeedMixer get _mixer => ref.read(feedMixerProvider);
   FeedStatsService get _stats => ref.read(feedStatsServiceProvider);
   bool get _tinyPool => _eligible.length < kMinInfinitePool;
 
@@ -222,6 +242,18 @@ class FeedController extends Notifier<FeedState> {
     _eligible = _fullPool
         .where((q) => !reported.contains(q.id) && !_muted.contains(q.topicName))
         .toList();
+    try {
+      final missed = await ref.read(feedRevisionServiceProvider).getMissedQuestions();
+      _facts = missed
+          .where((q) => !reported.contains(q.id) && !_muted.contains(q.topicName))
+          .toList();
+      ref.invalidate(dueFeedFlashcardsProvider);
+      _dueFlashcards = await ref.read(dueFeedFlashcardsProvider.future);
+    } catch (_) {
+      // Mixing is a bonus; a plain question feed is fine without it.
+      _facts = [];
+      _dueFlashcards = [];
+    }
   }
 
   RankerSnapshot _snapshot() => RankerSnapshot(
@@ -244,8 +276,36 @@ class FeedController extends Notifier<FeedState> {
     );
   }
 
-  List<FeedCardState> _cardsFrom(RankedBatch batch) =>
-      batch.picks.map((p) => _card(p.question, reason: p.reason)).toList();
+  FeedCardState _slotCard(MixedSlot slot) {
+    final q = slot.question;
+    return FeedCardState(
+      uid: _nextUid++,
+      kind: slot.kind,
+      question: q,
+      bookmarked: _bookmarkedIds.contains(q.id),
+      liked: _engagement.isLiked(q.engagementKey),
+      reason: slot.reason,
+      tfShownOption: slot.tfShownOption,
+      flashcard: slot.flashcard,
+    );
+  }
+
+  /// Cards for a For You batch, mixed after [before] (the cards that stay
+  /// ahead of them): some questions become True/False, and due flashcards
+  /// and "Remember this?" facts are slotted in between.
+  List<FeedCardState> _cardsFrom(RankedBatch batch, {List<FeedCardState> before = const []}) {
+    final slots = _mixer.mix(
+      batch.picks,
+      history: [for (final c in before) c.kind],
+      facts: [for (final q in _facts) if (!_shownExtras.contains('fact:${q.id}')) q],
+      flashcards: [for (final f in _dueFlashcards) if (!_shownExtras.contains('card:${f.srsKey}')) f],
+    );
+    for (final slot in slots) {
+      if (slot.kind == FeedCardKind.fact) _shownExtras.add('fact:${slot.question.id}');
+      if (slot.kind == FeedCardKind.flashcard) _shownExtras.add('card:${slot.flashcard!.srsKey}');
+    }
+    return slots.map(_slotCard).toList();
+  }
 
   /// True the first time this session that fresh questions have run out.
   bool _caughtUpNow(RankedBatch batch) {
@@ -399,7 +459,7 @@ class FeedController extends Notifier<FeedState> {
     final index = _activeIndex;
     if (index == null || index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
-    if (card.isResolved || card.liked) return;
+    if (card.isResolved || card.liked || !card.isQuiz) return;
 
     final topic = card.question.topicName;
     if (_dwell.elapsed < kQuickPass) {
@@ -414,7 +474,7 @@ class FeedController extends Notifier<FeedState> {
 
   void _releaseAfter(int index) {
     _session.release(
-      state.cards.skip(index + 1).map((c) => c.question.engagementKey),
+      state.cards.skip(index + 1).where((c) => c.fromRanker).map((c) => c.question.engagementKey),
     );
   }
 
@@ -424,7 +484,7 @@ class FeedController extends Notifier<FeedState> {
     final batch = _ranker.nextBatch(_snapshot(), _session, size: _batchSize);
     final caughtUp = _caughtUpNow(batch);
     state = state.copyWith(
-      cards: [...state.cards, ..._cardsFrom(batch)],
+      cards: [...state.cards, ..._cardsFrom(batch, before: state.cards)],
       hasMore: batch.picks.isNotEmpty,
       pendingCaughtUpNotice: caughtUp ? true : null,
     );
@@ -441,9 +501,13 @@ class FeedController extends Notifier<FeedState> {
     final kept = state.cards.take(index + 1).toList();
     final tail = state.cards.skip(index + 1);
     final pinned = tail.takeWhile((c) => c.pinned).toList();
-    _session.release(
-      tail.skip(pinned.length).map((c) => c.question.engagementKey),
-    );
+    final dropped = tail.skip(pinned.length);
+    _session.release(dropped.where((c) => c.fromRanker).map((c) => c.question.engagementKey));
+    // Dropped facts and flashcards may come back later in the session.
+    for (final c in dropped) {
+      if (c.kind == FeedCardKind.fact) _shownExtras.remove('fact:${c.question.id}');
+      if (c.kind == FeedCardKind.flashcard) _shownExtras.remove('card:${c.flashcard!.srsKey}');
+    }
     final batch = _ranker.nextBatch(
       _snapshot(),
       _session,
@@ -452,7 +516,7 @@ class FeedController extends Notifier<FeedState> {
     );
     final caughtUp = _caughtUpNow(batch);
     state = state.copyWith(
-      cards: [...kept, ...pinned, ..._cardsFrom(batch)],
+      cards: [...kept, ...pinned, ..._cardsFrom(batch, before: [...kept, ...pinned])],
       hasMore: !_tinyPool && batch.picks.isNotEmpty,
       pendingCaughtUpNotice: caughtUp ? true : null,
     );
@@ -486,12 +550,40 @@ class FeedController extends Notifier<FeedState> {
   Future<void> selectOption(int index, int optionIndex) async {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
-    if (card.isResolved) return;
+    if (card.isResolved || card.kind != FeedCardKind.question) return;
+    await _recordAnswer(
+      index,
+      card.copyWith(selectedOption: optionIndex),
+      correct: optionIndex == card.question.correctIndex,
+      xp: kFeedXpPerCorrect,
+    );
+  }
 
-    final correct = optionIndex == card.question.correctIndex;
+  /// Answers a True/False card: [saysTrue] is the user's verdict on
+  /// whether the shown option is the right answer.
+  Future<void> answerTrueFalse(int index, bool saysTrue) async {
+    if (index < 0 || index >= state.cards.length) return;
+    final card = state.cards[index];
+    if (card.isResolved || card.kind != FeedCardKind.trueFalse) return;
+    await _recordAnswer(
+      index,
+      card.copyWith(tfChoice: saysTrue),
+      correct: saysTrue == card.tfStatementTrue,
+      xp: kFeedXpPerTrueFalse,
+    );
+  }
+
+  /// Shared bookkeeping for every answered quiz card: combo, topic stats,
+  /// revision vault, XP, today's count and the one celebration to show.
+  Future<void> _recordAnswer(
+    int index,
+    FeedCardState answered, {
+    required bool correct,
+    required int xp,
+  }) async {
     final combo = correct ? state.combo + 1 : 0;
     final cards = List<FeedCardState>.from(state.cards);
-    cards[index] = card.copyWith(selectedOption: optionIndex);
+    cards[index] = answered;
     state = state.copyWith(
       cards: cards,
       combo: combo,
@@ -499,7 +591,8 @@ class FeedController extends Notifier<FeedState> {
       sessionCorrect: state.sessionCorrect + (correct ? 1 : 0),
     );
 
-    final topic = card.question.topicName;
+    final question = answered.question;
+    final topic = question.topicName;
     _engagement.record(topic, EngagementSignal.answered);
     _session.quickPassStreak[topic] = 0;
     final stat = _topicStats[topic] ?? const TopicStat();
@@ -508,16 +601,16 @@ class FeedController extends Notifier<FeedState> {
       correct: stat.correct + (correct ? 1 : 0),
     );
 
-    await ref.read(feedStatsServiceProvider).recordAttempt(card.question.topic, correct);
-    await ref.read(feedRevisionServiceProvider).recordOutcome(card.question, correct);
+    await ref.read(feedStatsServiceProvider).recordAttempt(question.topic, correct);
+    await ref.read(feedRevisionServiceProvider).recordOutcome(question, correct);
 
     var leveledUpTo = 0;
     final milestone = correct && combo % kFeedComboMilestone == 0;
     if (correct) {
-      final xp = ref.read(xpServiceProvider);
-      final levelBefore = (await xp.getLevel()).level;
-      await xp.addXPToday(kFeedXpPerCorrect + (milestone ? kFeedComboBonusXp : 0));
-      final levelAfter = (await xp.getLevel()).level;
+      final xpService = ref.read(xpServiceProvider);
+      final levelBefore = (await xpService.getLevel()).level;
+      await xpService.addXPToday(xp + (milestone ? kFeedComboBonusXp : 0));
+      final levelAfter = (await xpService.getLevel()).level;
       if (levelAfter > levelBefore) leveledUpTo = levelAfter;
     }
 
@@ -530,11 +623,48 @@ class FeedController extends Notifier<FeedState> {
     );
   }
 
+  /// A fact card was read to the end or tapped through. It counts as
+  /// reading, not answering: no XP and no daily-goal credit.
+  void acknowledgeFact(int index) {
+    if (index < 0 || index >= state.cards.length) return;
+    final card = state.cards[index];
+    if (card.kind != FeedCardKind.fact || card.acknowledged) return;
+    final cards = List<FeedCardState>.from(state.cards);
+    cards[index] = card.copyWith(acknowledged: true);
+    state = state.copyWith(cards: cards);
+  }
+
+  void flipFlashcard(int index) {
+    if (index < 0 || index >= state.cards.length) return;
+    final card = state.cards[index];
+    if (card.kind != FeedCardKind.flashcard || card.flipped) return;
+    final cards = List<FeedCardState>.from(state.cards);
+    cards[index] = card.copyWith(flipped: true);
+    state = state.copyWith(cards: cards);
+  }
+
+  /// Rates a feed flashcard exactly as Cards would. The review counts
+  /// toward the streak (via [SrsService]) but earns no feed XP.
+  Future<void> rateFlashcard(int index, SrsRating rating) async {
+    if (index < 0 || index >= state.cards.length) return;
+    final card = state.cards[index];
+    final flashcard = card.flashcard;
+    if (card.kind != FeedCardKind.flashcard || card.rated || flashcard == null) return;
+    final cards = List<FeedCardState>.from(state.cards);
+    cards[index] = card.copyWith(flipped: true, rated: true);
+    state = state.copyWith(cards: cards);
+    _dueFlashcards = _dueFlashcards.where((f) => f.srsKey != flashcard.srsKey).toList();
+
+    await ref.read(srsServiceProvider).rateCard(flashcard.setId, flashcard.index, rating);
+    ref.invalidate(streakProvider);
+    ref.invalidate(homeStatsProvider);
+  }
+
   /// Reveals the answer without answering ("Skip" / "Show answer").
   Future<void> skipCurrent(int index) async {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
-    if (card.isResolved) return;
+    if (card.isResolved || !card.isQuiz) return;
 
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = card.copyWith(skipped: true);
