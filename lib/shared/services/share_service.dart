@@ -84,6 +84,19 @@ Can you beat it? #Quirzy #Streak
     );
   }
 
+  /// Shares hitting the daily question goal.
+  static Future<void> shareDailyGoal({required int questions}) async {
+    final text =
+        '''
+🎯 $questions questions done today on Quirzy!
+
+Daily goal smashed. #Quirzy
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'I hit my Quirzy goal today'),
+    );
+  }
+
   /// Shares a practice question as a challenge, without revealing the
   /// answer.
   static Future<void> shareQuestion({

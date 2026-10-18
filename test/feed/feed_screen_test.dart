@@ -8,6 +8,7 @@ import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/screens/feed_screen.dart';
 import 'package:quirzy/features/feed/services/feed_mixer.dart';
+import 'package:quirzy/shared/providers/providers.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
 import 'package:quirzy/shared/services/settings_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -127,6 +128,16 @@ void main() {
       await _tearDown(tester);
     });
 
+    testWidgets('refreshing right after a correct answer never skips the new first card', (tester) async {
+      await _pumpFeed(tester, pool);
+      await _answer(tester, 'Option A');
+      await tester.tap(find.text('For You'));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(seconds: 3));
+      expect(_page(tester), 0);
+      await _tearDown(tester);
+    });
+
     testWidgets('any touch after answering cancels the move', (tester) async {
       await _pumpFeed(tester, pool);
       await _answer(tester, 'Option A');
@@ -178,6 +189,35 @@ void main() {
       await _swipeUp(tester);
       expect(audio.stops, greaterThan(stopsBefore));
       expect(audio.spoken.length, greaterThanOrEqualTo(2));
+      await _tearDown(tester);
+    });
+
+    testWidgets('reads each card once, and goes quiet while another tab is open', (tester) async {
+      SettingsService()
+        ..setReadAloud(true)
+        ..setAutoAdvance(false);
+      final audio = FakeFeedAudio();
+      await _pumpFeed(tester, pool, audio: audio);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(audio.spoken, hasLength(1));
+
+      // A small nudge that settles back on the same card doesn't restart it.
+      await tester.drag(find.byType(PageView), const Offset(0, -40));
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(_page(tester), closeTo(0, 0.01));
+      expect(audio.spoken, hasLength(1));
+
+      final container = ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+      final stopsBefore = audio.stops;
+      container.read(tabIndexProvider.notifier).state = 1;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(audio.stops, greaterThan(stopsBefore));
+
+      container.read(tabIndexProvider.notifier).state = 0;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(audio.spoken, hasLength(2), reason: 'coming back reads the card again');
       await _tearDown(tester);
     });
 

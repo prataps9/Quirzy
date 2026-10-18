@@ -39,6 +39,9 @@ class MixedSlot {
 ///   cards, and a "Remember this?" fact at most once every [factEvery].
 /// - Facts and flashcards always have at least [minQuizBetween] quiz cards
 ///   (question or True/False) between them, so the feed stays a quiz.
+/// - The mix follows how the user is doing ([recentAccuracy]): when they
+///   are struggling, more teaching (facts) and the easier True/False
+///   format; when they are cruising, fewer facts and more full questions.
 class FeedMixer {
   FeedMixer({math.Random? random, this.trueFalseShare = 0.2}) : _random = random ?? math.Random();
 
@@ -49,6 +52,10 @@ class FeedMixer {
 
   static const flashcardEvery = 6;
   static const factEvery = 8;
+
+  /// Below / above these recent accuracies the mix shifts (see [mix]).
+  static const strugglingBelow = 0.5;
+  static const cruisingAbove = 0.85;
   static const minQuizBetween = 2;
   static const maxTrueFalseOptionLength = 90;
   static const minFactExplanationLength = 40;
@@ -79,25 +86,47 @@ class FeedMixer {
       q.correctIndex >= 0 &&
       q.correctIndex < q.options.length;
 
+  /// How often a fact may appear for a given recent accuracy.
+  static int factEveryFor(double? recentAccuracy) {
+    if (recentAccuracy == null) return factEvery;
+    if (recentAccuracy < strugglingBelow) return 5;
+    if (recentAccuracy > cruisingAbove) return 12;
+    return factEvery;
+  }
+
+  /// The True/False share for a given recent accuracy.
+  double trueFalseShareFor(double? recentAccuracy) {
+    if (recentAccuracy == null) return trueFalseShare;
+    if (recentAccuracy < strugglingBelow) return trueFalseShare * 1.5;
+    if (recentAccuracy > cruisingAbove) return trueFalseShare * 0.5;
+    return trueFalseShare;
+  }
+
   /// Mixes [picks] after the cards already in the feed, whose kinds are
   /// [history] (oldest first). [facts] and [flashcards] are consumed from
   /// the front; the caller removes the ones returned so they don't repeat.
+  /// [recentAccuracy] (0–1, null when unknown) tunes the mix.
   List<MixedSlot> mix(
     List<RankedPick> picks, {
     List<FeedCardKind> history = const [],
     List<PracticeQuestion> facts = const [],
     List<FeedFlashcard> flashcards = const [],
+    double? recentAccuracy,
   }) {
+    final everyFact = factEveryFor(recentAccuracy);
+    final tfShare = trueFalseShareFor(recentAccuracy);
     final kinds = [...history];
     final out = <MixedSlot>[];
     final factQueue = facts.where(factEligible).toList();
     final cardQueue = [...flashcards];
 
-    int sinceLast(bool Function(FeedCardKind) match) {
+    // Cards since the last one matching; "never" counts as long ago, so
+    // the first due flashcard can come as soon as there is room for it.
+    int sinceLast(bool Function(FeedCardKind) match, {bool neverIsLongAgo = false}) {
       for (var i = kinds.length - 1; i >= 0; i--) {
         if (match(kinds[i])) return kinds.length - 1 - i;
       }
-      return kinds.length;
+      return neverIsLongAgo ? 1 << 30 : kinds.length;
     }
 
     bool isInsert(FeedCardKind k) => k == FeedCardKind.fact || k == FeedCardKind.flashcard;
@@ -110,16 +139,16 @@ class FeedMixer {
     for (final pick in picks) {
       final roomForInsert = sinceLast(isInsert) >= minQuizBetween;
       if (roomForInsert && cardQueue.isNotEmpty &&
-          sinceLast((k) => k == FeedCardKind.flashcard) >= flashcardEvery - 1) {
+          sinceLast((k) => k == FeedCardKind.flashcard, neverIsLongAgo: true) >= flashcardEvery - 1) {
         add(MixedSlot.flashcard(cardQueue.removeAt(0)));
       } else if (roomForInsert && factQueue.isNotEmpty &&
-          sinceLast((k) => k == FeedCardKind.fact) >= factEvery - 1) {
+          sinceLast((k) => k == FeedCardKind.fact) >= everyFact - 1) {
         add(MixedSlot.fact(factQueue.removeAt(0)));
       }
 
       final q = pick.question;
       final afterTrueFalse = kinds.isNotEmpty && kinds.last == FeedCardKind.trueFalse;
-      if (!afterTrueFalse && trueFalseEligible(q) && _random.nextDouble() < trueFalseShare) {
+      if (!afterTrueFalse && trueFalseEligible(q) && _random.nextDouble() < tfShare) {
         add(MixedSlot.trueFalse(pick, _shownOption(q)));
       } else {
         add(MixedSlot.question(pick));

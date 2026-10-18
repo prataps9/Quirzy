@@ -110,4 +110,38 @@ void main() {
       expect(slots.any((s) => s.kind == FeedCardKind.fact), isFalse);
     });
   });
+
+  group('adapts to recent accuracy', () {
+    List<MixedSlot> run(double? accuracy) => FeedMixer(random: math.Random(9)).mix(
+      _picks(600),
+      facts: [for (var i = 1000; i < 1300; i++) _q(i, explanation: _longWhy)],
+      recentAccuracy: accuracy,
+    );
+    int count(List<MixedSlot> slots, FeedCardKind kind) => slots.where((s) => s.kind == kind).length;
+
+    test('struggling: more facts and more True/False than usual', () {
+      final usual = run(0.7);
+      final struggling = run(0.3);
+      expect(count(struggling, FeedCardKind.fact), greaterThan(count(usual, FeedCardKind.fact)));
+      expect(count(struggling, FeedCardKind.trueFalse), greaterThan(count(usual, FeedCardKind.trueFalse)));
+    });
+
+    test('cruising: fewer facts and fewer True/False than usual', () {
+      final usual = run(0.7);
+      final cruising = run(0.95);
+      expect(count(cruising, FeedCardKind.fact), lessThan(count(usual, FeedCardKind.fact)));
+      expect(count(cruising, FeedCardKind.trueFalse), lessThan(count(usual, FeedCardKind.trueFalse)));
+    });
+
+    test('unknown accuracy keeps the defaults', () {
+      expect(FeedMixer.factEveryFor(null), FeedMixer.factEvery);
+      expect(FeedMixer().trueFalseShareFor(null), 0.2);
+    });
+  });
+
+  test('a due flashcard can come early, so short feeds still get one', () {
+    final slots = FeedMixer(random: math.Random(1), trueFalseShare: 0).mix(_picks(4), flashcards: [_card(0)]);
+    final index = slots.indexWhere((s) => s.kind == FeedCardKind.flashcard);
+    expect(index, FeedMixer.minQuizBetween);
+  });
 }

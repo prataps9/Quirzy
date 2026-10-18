@@ -17,6 +17,17 @@ class FeedAudio {
     final tts = _tts ??= FlutterTts();
     if (!_ttsReady) {
       _ttsReady = true;
+      // Questions are in English; don't read them with a Hindi (or other)
+      // device-default voice when an English one is available.
+      try {
+        if (await tts.isLanguageAvailable('en-IN') == true) {
+          await tts.setLanguage('en-IN');
+        } else if (await tts.isLanguageAvailable('en-US') == true) {
+          await tts.setLanguage('en-US');
+        }
+      } catch (_) {
+        // Keep the device default voice.
+      }
       await tts.setSpeechRate(0.5);
       await tts.awaitSpeakCompletion(false);
     }

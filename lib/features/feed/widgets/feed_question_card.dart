@@ -115,6 +115,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     if (card.skipped || !card.isQuiz) return;
     if (card.isCorrect) {
       _xpPops++;
+      HapticFeedback.mediumImpact();
     } else {
       _shakes++;
       HapticFeedback.heavyImpact();
@@ -242,7 +243,9 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
                 icon: style.icon,
                 reason: card.reason,
                 onTopicTap: widget.onOpenTopic,
-                onMore: widget.onMore,
+                // A flashcard wraps a set, not a feed question: the menu's
+                // topic and difficulty actions don't apply to it.
+                onMore: card.kind == FeedCardKind.flashcard ? null : widget.onMore,
                 soundOn: widget.soundOn,
                 onToggleSound: widget.onToggleSound,
                 timer: isQuiz
@@ -403,7 +406,7 @@ class _Caption extends StatelessWidget {
   final IconData icon;
   final String? reason;
   final VoidCallback? onTopicTap;
-  final VoidCallback onMore;
+  final VoidCallback? onMore;
   final Widget? timer;
   final bool soundOn;
   final VoidCallback onToggleSound;
@@ -477,12 +480,13 @@ class _Caption extends StatelessWidget {
               color: soundOn ? p.accentText : p.textMuted,
             ),
           ),
-          IconButton(
-            tooltip: 'More',
-            visualDensity: VisualDensity.compact,
-            onPressed: onMore,
-            icon: Icon(Icons.more_horiz_rounded, color: p.textMuted),
-          ),
+          if (onMore != null)
+            IconButton(
+              tooltip: 'More',
+              visualDensity: VisualDensity.compact,
+              onPressed: onMore,
+              icon: Icon(Icons.more_horiz_rounded, color: p.textMuted),
+            ),
         ],
       ),
     );
@@ -679,18 +683,18 @@ class _ActionBar extends StatelessWidget {
       height: 48,
       child: Row(
         children: [
-          IconButton(
-            tooltip: card.liked ? 'Unlike' : 'Like',
-            onPressed: () {
-              HapticFeedback.lightImpact();
-              onToggleLike();
-            },
-            icon: Icon(
-              card.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              color: card.liked ? p.like : p.text,
-            ),
-          ),
           if (!isFlashcard) ...[
+            IconButton(
+              tooltip: card.liked ? 'Unlike' : 'Like',
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                onToggleLike();
+              },
+              icon: Icon(
+                card.liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                color: card.liked ? p.like : p.text,
+              ),
+            ),
             IconButton(tooltip: 'Explanation', onPressed: onExplain, icon: const Icon(Icons.mode_comment_outlined)),
             IconButton(tooltip: 'Share', onPressed: onShare, icon: const Icon(Icons.send_rounded)),
           ],

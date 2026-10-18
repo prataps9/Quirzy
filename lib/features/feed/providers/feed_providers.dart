@@ -168,6 +168,15 @@ class FeedController extends Notifier<FeedState> {
   int _nextUid = 0;
   int _rewardId = 0;
   int? _activeIndex;
+
+  /// The furthest card reached in this lane. Re-ranking only ever replaces
+  /// cards after it, so going back to like an earlier card never throws
+  /// away cards already seen or answered.
+  int _frontier = -1;
+
+  /// Bumped by every [switchLane] call, so a slower earlier switch can't
+  /// overwrite a newer one when it finishes.
+  int _laneRequest = 0;
   bool _tabVisible = true;
   bool _appResumed = true;
   bool _visible = true;
@@ -243,7 +252,9 @@ class FeedController extends Notifier<FeedState> {
         .where((q) => !reported.contains(q.id) && !_muted.contains(q.topicName))
         .toList();
     try {
-      final missed = await ref.read(feedRevisionServiceProvider).getMissedQuestions();
+      // Only vault questions that aren't due: a due one may come up as a
+      // quiz soon, and a fact would give its answer away.
+      final missed = await ref.read(feedRevisionServiceProvider).getMissedNotDue();
       _facts = missed
           .where((q) => !reported.contains(q.id) && !_muted.contains(q.topicName))
           .toList();
@@ -294,10 +305,19 @@ class FeedController extends Notifier<FeedState> {
   /// ahead of them): some questions become True/False, and due flashcards
   /// and "Remember this?" facts are slotted in between.
   List<FeedCardState> _cardsFrom(RankedBatch batch, {List<FeedCardState> before = const []}) {
+    // A fact must never reveal a question that is (or is about to be) a
+    // quiz card in this feed.
+    final inFeed = {
+      for (final c in before) c.question.id,
+      for (final p in batch.picks) p.question.id,
+    };
     final slots = _mixer.mix(
       batch.picks,
       history: [for (final c in before) c.kind],
-      facts: [for (final q in _facts) if (!_shownExtras.contains('fact:${q.id}')) q],
+      facts: [
+        for (final q in _facts)
+          if (!_shownExtras.contains('fact:${q.id}') && !inFeed.contains(q.id)) q,
+      ],
       flashcards: [for (final f in _dueFlashcards) if (!_shownExtras.contains('card:${f.srsKey}')) f],
     );
     for (final slot in slots) {
@@ -341,9 +361,11 @@ class FeedController extends Notifier<FeedState> {
   }
 
   Future<void> switchLane(FeedLane lane, {bool restorePosition = false}) async {
+    final request = ++_laneRequest;
     _closeActive();
     if (state.lane.isInfinite) _releaseAfter(_activeIndex ?? -1);
     _activeIndex = null;
+    _frontier = -1;
     _refillPending = false;
     unawaited(_engagement.flush());
 
@@ -377,6 +399,13 @@ class FeedController extends Notifier<FeedState> {
         final saved = prefs.getInt('feed_lane_pos_${target.id}') ?? 0;
         startIndex = cards.isEmpty ? 0 : saved.clamp(0, cards.length - 1);
       }
+    }
+
+    if (request != _laneRequest) {
+      // A newer switch started while this one was loading; let it win.
+      _session.release(cards.where((c) => c.fromRanker).map((c) => c.question.engagementKey));
+      _unmarkExtras(cards);
+      return;
     }
 
     await prefs.setString('feed_last_lane_id', target.id);
@@ -418,12 +447,15 @@ class FeedController extends Notifier<FeedState> {
     _activeIndex = index;
     if (index < 0 || index >= state.cards.length) return;
 
+    _frontier = math.max(_frontier, index);
     _engagement.markSeen(state.cards[index].question.engagementKey);
     _dwell.reset();
     if (_visible) _dwell.start();
     if (_refillPending) {
+      // Scrolling has settled (that's what activation means), so the
+      // re-rank can run now rather than waiting for an idle check.
       _refillPending = false;
-      _refillAfter(index);
+      _refillAfter(index, force: true);
     }
     _maybeAppend(index);
   }
@@ -432,6 +464,17 @@ class FeedController extends Notifier<FeedState> {
   void setTabVisible(bool visible) {
     _tabVisible = visible;
     _syncDwell();
+    // Cards may have been reviewed in the Cards tab meanwhile.
+    if (visible) unawaited(_reloadDueFlashcards());
+  }
+
+  Future<void> _reloadDueFlashcards() async {
+    try {
+      ref.invalidate(dueFeedFlashcardsProvider);
+      _dueFlashcards = await ref.read(dueFeedFlashcardsProvider.future);
+    } catch (_) {
+      // Keep the previous list; mixing is a bonus.
+    }
   }
 
   /// Whether the app is in the foreground.
@@ -473,9 +516,18 @@ class FeedController extends Notifier<FeedState> {
   }
 
   void _releaseAfter(int index) {
-    _session.release(
-      state.cards.skip(index + 1).where((c) => c.fromRanker).map((c) => c.question.engagementKey),
-    );
+    final dropped = state.cards.skip(index + 1).toList();
+    _session.release(dropped.where((c) => c.fromRanker).map((c) => c.question.engagementKey));
+    _unmarkExtras(dropped);
+  }
+
+  /// Facts and flashcards in [cards] were never reached, so they may be
+  /// mixed in again later this session.
+  void _unmarkExtras(Iterable<FeedCardState> cards) {
+    for (final c in cards) {
+      if (c.kind == FeedCardKind.fact) _shownExtras.remove('fact:${c.question.id}');
+      if (c.kind == FeedCardKind.flashcard) _shownExtras.remove('card:${c.flashcard!.srsKey}');
+    }
   }
 
   void _maybeAppend(int index) {
@@ -490,24 +542,23 @@ class FeedController extends Notifier<FeedState> {
     );
   }
 
-  /// Re-ranks every card after [index], keeping pinned ones, so the next
-  /// swipe reflects what the user just did. Waits for scrolling to stop.
-  void _refillAfter(int index) {
+  /// Re-ranks the cards not yet reached (after [index], or after the
+  /// furthest card seen if that is later), keeping pinned ones, so the next
+  /// swipe reflects what the user just did. Waits for scrolling to stop
+  /// unless [force]d.
+  void _refillAfter(int index, {bool force = false}) {
     if (!state.lane.isInfinite || index < 0) return;
-    if (!isScrollIdle()) {
+    if (!force && !isScrollIdle()) {
       _refillPending = true;
       return;
     }
-    final kept = state.cards.take(index + 1).toList();
-    final tail = state.cards.skip(index + 1);
+    final from = math.max(index, _frontier);
+    final kept = state.cards.take(from + 1).toList();
+    final tail = state.cards.skip(from + 1);
     final pinned = tail.takeWhile((c) => c.pinned).toList();
     final dropped = tail.skip(pinned.length);
     _session.release(dropped.where((c) => c.fromRanker).map((c) => c.question.engagementKey));
-    // Dropped facts and flashcards may come back later in the session.
-    for (final c in dropped) {
-      if (c.kind == FeedCardKind.fact) _shownExtras.remove('fact:${c.question.id}');
-      if (c.kind == FeedCardKind.flashcard) _shownExtras.remove('card:${c.flashcard!.srsKey}');
-    }
+    _unmarkExtras(dropped);
     final batch = _ranker.nextBatch(
       _snapshot(),
       _session,
@@ -655,7 +706,11 @@ class FeedController extends Notifier<FeedState> {
     state = state.copyWith(cards: cards);
     _dueFlashcards = _dueFlashcards.where((f) => f.srsKey != flashcard.srsKey).toList();
 
-    await ref.read(srsServiceProvider).rateCard(flashcard.setId, flashcard.index, rating);
+    final srs = ref.read(srsServiceProvider);
+    // Already reviewed in Cards since this card was queued: don't rate it
+    // twice (that would push its next review out too far).
+    if (!(await srs.getCard(flashcard.setId, flashcard.index)).isDue) return;
+    await srs.rateCard(flashcard.setId, flashcard.index, rating);
     ref.invalidate(streakProvider);
     ref.invalidate(homeStatsProvider);
   }
@@ -877,13 +932,32 @@ class FeedController extends Notifier<FeedState> {
   /// Deep Dive drawer. Returns the index to scroll to.
   int insertNext(int afterIndex, PracticeQuestion question) {
     final cards = List<FeedCardState>.from(state.cards);
+    final insertAt = (afterIndex + 1).clamp(0, cards.length);
     final existing = cards.indexWhere(
-      (c) => c.question.engagementKey == question.engagementKey,
+      (c) => c.question.engagementKey == question.engagementKey && c.isQuiz && !c.isResolved,
       afterIndex + 1,
     );
-    if (existing != -1) return existing;
+    if (existing == insertAt) return existing;
+    if (existing != -1) {
+      // Already further down: bring it up so it really is next.
+      final card = cards.removeAt(existing);
+      cards.insert(
+        insertAt,
+        FeedCardState(
+          uid: card.uid,
+          kind: card.kind,
+          question: card.question,
+          bookmarked: card.bookmarked,
+          liked: card.liked,
+          reason: 'Similar question',
+          pinned: true,
+          tfShownOption: card.tfShownOption,
+        ),
+      );
+      state = state.copyWith(cards: cards);
+      return insertAt;
+    }
 
-    final insertAt = (afterIndex + 1).clamp(0, cards.length);
     cards.insert(insertAt, _card(question, reason: 'Similar question', pinned: true));
     if (state.lane.isInfinite) _session.enqueue(question);
     state = state.copyWith(cards: cards);

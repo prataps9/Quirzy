@@ -71,12 +71,21 @@ class PracticeContentService {
     await prefs.setString(PracticeContentKeys.topicsStore, jsonEncode(store));
   }
 
-  PracticeQuestion _toPracticeQuestion(Map<String, dynamic> q, String topicName, int fallbackIndex) {
+  /// Parses one stored question, or returns null when it can't be shown
+  /// correctly (no text, fewer than two options, or an answer index that
+  /// doesn't point at an option) — one bad item must not break the feed.
+  PracticeQuestion? _toPracticeQuestion(Map<String, dynamic> q, String topicName, int fallbackIndex) {
+    final options = [for (final o in (q['options'] as List? ?? const [])) o.toString()];
+    final rawIndex = q['correctIndex'] ?? q['correctAnswer'] ?? 0;
+    final correctIndex = rawIndex is int ? rawIndex : int.tryParse(rawIndex.toString());
+    final questionText = (q['questionText'] ?? q['question'] ?? '').toString();
+    if (questionText.trim().isEmpty || options.length < 2) return null;
+    if (correctIndex == null || correctIndex < 0 || correctIndex >= options.length) return null;
     return PracticeQuestion(
       id: q['id']?.toString() ?? '${topicName}_$fallbackIndex',
-      questionText: (q['questionText'] ?? q['question'] ?? '').toString(),
-      options: List<String>.from(q['options'] ?? const ['A', 'B', 'C', 'D']),
-      correctIndex: q['correctIndex'] ?? q['correctAnswer'] ?? 0,
+      questionText: questionText,
+      options: options,
+      correctIndex: correctIndex,
       explanation: (q['explanation'] ?? '').toString(),
       sourceTopicId: q['sourceTopicId']?.toString() ?? q['originalQuizId']?.toString() ?? q['quizId']?.toString(),
       topic: topicName,
@@ -95,7 +104,8 @@ class PracticeContentService {
       final bucket = entry.value as Map<String, dynamic>;
       final questions = List<Map<String, dynamic>>.from(bucket['questions'] ?? const []);
       for (var i = 0; i < questions.length; i++) {
-        all.add(_toPracticeQuestion(questions[i], entry.key, i));
+        final question = _toPracticeQuestion(questions[i], entry.key, i);
+        if (question != null) all.add(question);
       }
     }
     return all;

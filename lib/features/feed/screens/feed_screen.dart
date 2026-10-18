@@ -38,6 +38,33 @@ class FeedScreen extends ConsumerStatefulWidget {
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
+/// The parts of [FeedState] the page view itself depends on. Each page
+/// watches its own card, and the header watches its own numbers, so
+/// answering a card rebuilds that card only.
+typedef _FeedView = ({
+  FeedLane lane,
+  int cardCount,
+  int laneEpoch,
+  int startIndex,
+  bool loading,
+  bool hasMore,
+  bool showHints,
+  bool focusMode,
+  bool allTopicsHidden,
+});
+
+_FeedView _viewOf(FeedState s) => (
+  lane: s.lane,
+  cardCount: s.cards.length,
+  laneEpoch: s.laneEpoch,
+  startIndex: s.startIndex,
+  loading: s.loading,
+  hasMore: s.hasMore,
+  showHints: s.showHints,
+  focusMode: s.focusMode,
+  allTopicsHidden: s.allTopicsHidden,
+);
+
 class _FeedScreenState extends ConsumerState<FeedScreen> {
   final PageController _pageController = PageController();
   final ConfettiController _confetti = ConfettiController(duration: const Duration(milliseconds: 900));
@@ -48,7 +75,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   Timer? _advanceTimer;
   int _currentIndex = 0;
   int _handledEpoch = 0;
-  bool _onScreen = true;
+
+  /// The feed is really in front of the user only when its tab is showing,
+  /// the app is in the foreground and no other screen is pushed on top.
+  bool _tabShown = true;
+  bool _appResumed = true;
+  bool _wasVisible = true;
+
+  /// The card read aloud last, so a scroll that settles back on the same
+  /// card doesn't start it again.
+  int? _lastSpokenUid;
 
   /// How long to wait before moving on, so the green check (or the end of
   /// a fact) registers first.
@@ -57,6 +93,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   FeedController get _controller => ref.read(feedControllerProvider.notifier);
   FeedAudio get _audio => ref.read(feedAudioProvider);
+  List<FeedCardState> get _cards => ref.read(feedControllerProvider).cards;
+
+  bool get _feedVisible => _tabShown && _appResumed && (ModalRoute.of(context)?.isCurrent ?? true);
 
   @override
   void initState() {
@@ -67,7 +106,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       onStateChange: (lifecycleState) {
         final resumed = lifecycleState == AppLifecycleState.resumed;
         _controller.setAppResumed(resumed);
-        if (!resumed) _silence();
+        if (mounted && resumed != _appResumed) setState(() => _appResumed = resumed);
       },
     );
   }
@@ -86,11 +125,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   /// Lands on a freshly loaded lane's start card. Driven from build rather
   /// than a listener so a lane switched while this tab was hidden is still
   /// picked up the moment it shows.
-  void _syncLaneStart(FeedState feedState) {
-    if (feedState.laneEpoch == _handledEpoch) return;
-    _handledEpoch = feedState.laneEpoch;
-    _currentIndex = feedState.startIndex;
-    final start = feedState.startIndex;
+  void _syncLaneStart(_FeedView view) {
+    if (view.laneEpoch == _handledEpoch) return;
+    _handledEpoch = view.laneEpoch;
+    _currentIndex = view.startIndex;
+    _advanceTimer?.cancel();
+    _lastSpokenUid = null;
+    final start = view.startIndex;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_pageController.hasClients) _pageController.jumpToPage(start);
@@ -99,32 +140,55 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     });
   }
 
+  /// Pauses everything that should only run while the feed is in front:
+  /// speech, a pending auto-advance, and (via `isActive`) the fact bar and
+  /// question timer.
+  void _syncVisibility() {
+    final visible = _feedVisible;
+    if (visible == _wasVisible) return;
+    _wasVisible = visible;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (visible) {
+        _readActive();
+      } else {
+        _silence();
+      }
+    });
+  }
+
   /// Stops speech and any pending auto-advance — the user is busy elsewhere.
   void _silence() {
     _advanceTimer?.cancel();
+    _lastSpokenUid = null;
     _audio.stop();
   }
 
-  /// Reads the card on screen aloud when read-aloud is on.
-  void _readActive() {
-    if (!_onScreen || !ref.read(settingsProvider).readAloud) return;
-    final cards = ref.read(feedControllerProvider).cards;
-    if (_currentIndex < cards.length) _audio.speak(cards[_currentIndex]);
+  /// Reads the card on screen aloud when read-aloud is on — once per card,
+  /// unless [force]d (e.g. the back of a flipped flashcard).
+  void _readActive({bool force = false}) {
+    if (!mounted || !_feedVisible || !ref.read(settingsProvider).readAloud) return;
+    final cards = _cards;
+    if (_currentIndex >= cards.length) return;
+    final card = cards[_currentIndex];
+    if (!force && card.uid == _lastSpokenUid) return;
+    _lastSpokenUid = card.uid;
+    _audio.speak(card);
   }
 
   void _toggleReadAloud() {
     final settings = ref.read(settingsProvider);
     settings.setReadAloud(!settings.readAloud);
     if (settings.readAloud) {
-      _readActive();
+      _readActive(force: true);
     } else {
-      _audio.stop();
+      _silence();
     }
   }
 
   /// Reacts to the card on screen resolving: plays the answer sound and,
   /// if auto-scroll is on, schedules the move to the next card.
-  void _onActiveResolved(FeedCardState card, FeedState feedState) {
+  void _onActiveResolved(FeedCardState card) {
     final settings = ref.read(settingsProvider);
     if (card.isQuiz && !card.skipped && settings.soundEffects) {
       _audio.playAnswer(correct: card.isCorrect);
@@ -136,10 +200,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     };
     if (delay == null) return;
     final from = _currentIndex;
+    final uid = card.uid;
+    final epoch = _handledEpoch;
     _advanceTimer?.cancel();
     _advanceTimer = Timer(delay, () {
-      if (!mounted || !_onScreen || _currentIndex != from || !_pageController.hasClients) return;
-      final itemCount = feedState.cards.length + (feedState.hasMore ? 0 : 1);
+      if (!mounted || !_feedVisible || !_pageController.hasClients) return;
+      // Only move if the user is still on that exact card in that lane.
+      final state = ref.read(feedControllerProvider);
+      if (epoch != _handledEpoch || _currentIndex != from) return;
+      if (from >= state.cards.length || state.cards[from].uid != uid) return;
+      final itemCount = state.cards.length + (state.hasMore ? 0 : 1);
       if (from + 1 >= itemCount) return;
       _pageController.animateToPage(
         from + 1,
@@ -149,7 +219,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     });
   }
 
-  void _handlePageChanged(int newIndex, FeedState feedState) {
+  void _handlePageChanged(int newIndex) {
+    final feedState = ref.read(feedControllerProvider);
     if (feedState.focusMode && newIndex > _currentIndex) {
       final leavingIndex = _currentIndex;
       final stillBlocked = leavingIndex < feedState.cards.length && !feedState.cards[leavingIndex].isResolved;
@@ -252,20 +323,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final feedState = ref.watch(feedControllerProvider);
-    final streak = ref.watch(streakProvider).value ?? StreakInfo.none;
-    final isOnline = ref.watch(isOnlineProvider).value ?? true;
+    final view = ref.watch(feedControllerProvider.select(_viewOf));
     final readAloud = ref.watch(settingsProvider.select((s) => s.readAloud));
     final p = context.palette;
-    _syncLaneStart(feedState);
+    _syncLaneStart(view);
+    _syncVisibility();
 
     ref.listen<int>(tabIndexProvider, (_, tab) {
-      _onScreen = tab == 0;
-      if (_onScreen) {
-        _readActive();
-      } else {
-        _silence();
-      }
+      if (mounted && (tab == 0) != _tabShown) setState(() => _tabShown = tab == 0);
     });
 
     ref.listen<FeedState>(feedControllerProvider, (previous, next) {
@@ -273,9 +338,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (previous != null && i < next.cards.length && i < previous.cards.length) {
         final before = previous.cards[i];
         final now = next.cards[i];
-        if (before.uid == now.uid && !before.isResolved && now.isResolved) _onActiveResolved(now, next);
+        if (before.uid == now.uid && !before.isResolved && now.isResolved) _onActiveResolved(now);
         // Reading the back of a flipped flashcard aloud.
-        if (before.uid == now.uid && !before.flipped && now.flipped && !now.rated) _readActive();
+        if (before.uid == now.uid && !before.flipped && now.flipped && !now.rated) _readActive(force: true);
       }
       if (next.pendingBreakNudge && !(previous?.pendingBreakNudge ?? false)) {
         _showBreakNudge(next);
@@ -293,72 +358,72 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                _FeedHeader(
-                  lane: feedState.lane,
-                  isOnline: isOnline,
-                  streak: streak,
-                  todayAnswered: feedState.todayAnswered,
-                  combo: feedState.combo,
-                  onRefresh: () {
-                    HapticFeedback.selectionClick();
-                    _controller.refreshForYou();
-                  },
-                  onBack: () => _controller.switchLane(FeedLane.forYou),
-                  onOpenLanes: _openLaneSwitcher,
-                  onOpenMyPrep: _openMyPrep,
-                ),
-                Expanded(child: _buildBody(feedState, readAloud: readAloud)),
-              ],
-            ),
-            Align(
-              alignment: Alignment.topCenter,
-              child: ConfettiWidget(
-                confettiController: _confetti,
-                blastDirection: math.pi / 2,
-                blastDirectionality: BlastDirectionality.explosive,
-                emissionFrequency: 0.05,
-                numberOfParticles: 18,
-                maxBlastForce: 22,
-                minBlastForce: 8,
-                gravity: 0.25,
-                colors: [p.accent, p.streak, p.like, p.text],
+        child: Listener(
+          // Any touch means the user is in control: drop a pending auto-advance.
+          onPointerDown: (_) => _advanceTimer?.cancel(),
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  _FeedHeaderBar(
+                    onRefresh: () {
+                      HapticFeedback.selectionClick();
+                      _controller.refreshForYou();
+                    },
+                    onBack: () => _controller.switchLane(FeedLane.forYou),
+                    onOpenLanes: _openLaneSwitcher,
+                    onOpenMyPrep: _openMyPrep,
+                  ),
+                  Expanded(child: _buildBody(view, readAloud: readAloud)),
+                ],
               ),
-            ),
-            Positioned(
-              top: 56,
-              left: 16,
-              right: 16,
-              child: IgnorePointer(
-                ignoring: _bannerReward == null,
-                child: AnimatedSlide(
-                  offset: _bannerReward == null ? const Offset(0, -0.6) : Offset.zero,
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  child: AnimatedOpacity(
-                    opacity: _bannerReward == null ? 0 : 1,
-                    duration: const Duration(milliseconds: 180),
-                    child: _bannerReward == null ? const SizedBox(height: 0) : _RewardBanner(reward: _bannerReward!),
+              Align(
+                alignment: Alignment.topCenter,
+                child: ConfettiWidget(
+                  confettiController: _confetti,
+                  blastDirection: math.pi / 2,
+                  blastDirectionality: BlastDirectionality.explosive,
+                  emissionFrequency: 0.05,
+                  numberOfParticles: 18,
+                  maxBlastForce: 22,
+                  minBlastForce: 8,
+                  gravity: 0.25,
+                  colors: [p.accent, p.streak, p.like, p.text],
+                ),
+              ),
+              Positioned(
+                top: 56,
+                left: 16,
+                right: 16,
+                child: IgnorePointer(
+                  ignoring: _bannerReward == null,
+                  child: AnimatedSlide(
+                    offset: _bannerReward == null ? const Offset(0, -0.6) : Offset.zero,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: _bannerReward == null ? 0 : 1,
+                      duration: const Duration(milliseconds: 180),
+                      child: _bannerReward == null ? const SizedBox(height: 0) : _RewardBanner(reward: _bannerReward!),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildBody(FeedState feedState, {required bool readAloud}) {
-    if (feedState.loading && feedState.cards.isEmpty) {
+  Widget _buildBody(_FeedView view, {required bool readAloud}) {
+    if (view.loading && view.cardCount == 0) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (feedState.cards.isEmpty) return _buildEmptyState(feedState);
+    if (view.cardCount == 0) return _buildEmptyState(view);
 
-    final itemCount = feedState.cards.length + (feedState.hasMore ? 0 : 1);
+    final visible = _feedVisible;
+    final itemCount = view.cardCount + (view.hasMore ? 0 : 1);
     final pages = NotificationListener<ScrollEndNotification>(
       onNotification: _handleScrollEnd,
       child: PageView.builder(
@@ -366,12 +431,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         scrollDirection: Axis.vertical,
         allowImplicitScrolling: true,
         itemCount: itemCount,
-        onPageChanged: (i) => _handlePageChanged(i, feedState),
+        onPageChanged: _handlePageChanged,
         itemBuilder: (context, index) {
-          if (index >= feedState.cards.length) {
+          if (index >= view.cardCount) {
             return _EndOfLane(
-              lane: feedState.lane,
-              cardCount: feedState.cards.length,
+              lane: view.lane,
+              cardCount: _cards.where((c) => c.isQuiz).length,
               onGoAgain: _controller.refreshForYou,
               onReplay: _controller.reshuffleCurrentLane,
               onForYou: () => _controller.switchLane(FeedLane.forYou),
@@ -379,60 +444,73 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
               onBrowse: _openLaneSwitcher,
             );
           }
-          final card = feedState.cards[index];
-          final topic = card.question.topicName;
-          final inTopicLane = feedState.lane.type == FeedLaneType.topic;
-          return RepaintBoundary(
-            key: ValueKey('feed_card_${card.uid}'),
-            child: FeedQuestionCard(
-              cardState: card,
-              isActive: index == _currentIndex,
-              showGestureHint: feedState.showHints && index == 0,
-              focusMode: feedState.focusMode,
-              positionInLane: feedState.lane.isInfinite ? null : index + 1,
-              laneLength: feedState.cards.length,
-              onSelectOption: (opt) => _controller.selectOption(index, opt),
-              onSkip: () => _controller.skipCurrent(index),
-              onDoubleTapLike: () => _controller.like(index),
-              onToggleLike: () => _controller.toggleLike(index),
-              onToggleSave: () => _controller.toggleBookmark(index),
-              onExplain: () => _openDeepDive(card.question, index),
-              onShare: () => _share(card.question),
-              onMore: () => _openMenu(card.question),
-              onOpenLaneSwitcher: _openLaneSwitcher,
-              onOpenTopic: inTopicLane
-                  ? null
-                  : () => _controller.switchLane(
-                        FeedLane(type: FeedLaneType.topic, id: 'topic:$topic', label: topic),
-                      ),
-              onWrongReason: _controller.recordWrongReason,
-              onTrueFalse: (saysTrue) => _controller.answerTrueFalse(index, saysTrue),
-              onFactDone: () => _controller.acknowledgeFact(index),
-              onFlip: () => _controller.flipFlashcard(index),
-              onRate: (rating) => _controller.rateFlashcard(index, rating),
-              soundOn: readAloud,
-              onToggleSound: _toggleReadAloud,
-            ),
+          // Each page watches only its own card.
+          return Consumer(
+            builder: (context, ref, _) {
+              final card = ref.watch(
+                feedControllerProvider.select((s) => index < s.cards.length ? s.cards[index] : null),
+              );
+              if (card == null) return const SizedBox.shrink();
+              return _buildCard(card, index, view, isActive: index == _currentIndex && visible, readAloud: readAloud);
+            },
           );
         },
       ),
     );
 
-    return Listener(
-      // Any touch means the user is in control: drop a pending auto-advance.
-      onPointerDown: (_) => _advanceTimer?.cancel(),
-      child: Stack(
-        children: [
-          pages,
-          if (feedState.showHints && _currentIndex == 0)
-            const Positioned(left: 0, right: 0, bottom: 64, child: IgnorePointer(child: _SwipeUpHint())),
-        ],
+    return Stack(
+      children: [
+        pages,
+        if (view.showHints && _currentIndex == 0)
+          const Positioned(left: 0, right: 0, bottom: 64, child: IgnorePointer(child: _SwipeUpHint())),
+      ],
+    );
+  }
+
+  Widget _buildCard(
+    FeedCardState card,
+    int index,
+    _FeedView view, {
+    required bool isActive,
+    required bool readAloud,
+  }) {
+    final topic = card.question.topicName;
+    // A flashcard's "topic" is its set title, not a feed topic.
+    final canOpenTopic = view.lane.type != FeedLaneType.topic && card.kind != FeedCardKind.flashcard;
+    return RepaintBoundary(
+      key: ValueKey('feed_card_${card.uid}'),
+      child: FeedQuestionCard(
+        cardState: card,
+        isActive: isActive,
+        showGestureHint: view.showHints && index == 0,
+        focusMode: view.focusMode,
+        positionInLane: view.lane.isInfinite ? null : index + 1,
+        laneLength: view.cardCount,
+        onSelectOption: (opt) => _controller.selectOption(index, opt),
+        onSkip: () => _controller.skipCurrent(index),
+        onDoubleTapLike: () => _controller.like(index),
+        onToggleLike: () => _controller.toggleLike(index),
+        onToggleSave: () => _controller.toggleBookmark(index),
+        onExplain: () => _openDeepDive(card.question, index),
+        onShare: () => _share(card.question),
+        onMore: () => _openMenu(card.question),
+        onOpenLaneSwitcher: _openLaneSwitcher,
+        onOpenTopic: canOpenTopic
+            ? () => _controller.switchLane(FeedLane(type: FeedLaneType.topic, id: 'topic:$topic', label: topic))
+            : null,
+        onWrongReason: _controller.recordWrongReason,
+        onTrueFalse: (saysTrue) => _controller.answerTrueFalse(index, saysTrue),
+        onFactDone: () => _controller.acknowledgeFact(index),
+        onFlip: () => _controller.flipFlashcard(index),
+        onRate: (rating) => _controller.rateFlashcard(index, rating),
+        soundOn: readAloud,
+        onToggleSound: _toggleReadAloud,
       ),
     );
   }
 
-  Widget _buildEmptyState(FeedState feedState) {
-    if (feedState.allTopicsHidden) {
+  Widget _buildEmptyState(_FeedView view) {
+    if (view.allTopicsHidden) {
       return _EmptyMessage(
         icon: Icons.visibility_off_rounded,
         title: 'All your topics are hidden',
@@ -441,7 +519,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         onAction: _controller.unmuteAllTopics,
       );
     }
-    if (feedState.lane.isInfinite) {
+    if (view.lane.isInfinite) {
       return _EmptyMessage(
         icon: Icons.quiz_rounded,
         title: 'Your practice feed is empty',
@@ -456,6 +534,40 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       body: 'This lane is empty right now.',
       actionLabel: 'Back to For You',
       onAction: () => _controller.switchLane(FeedLane.forYou),
+    );
+  }
+}
+
+/// The header, watching only what it shows (streak, today's count, combo,
+/// lane, connectivity) so it doesn't rebuild the feed below it.
+class _FeedHeaderBar extends ConsumerWidget {
+  final VoidCallback onRefresh;
+  final VoidCallback onBack;
+  final VoidCallback onOpenLanes;
+  final VoidCallback onOpenMyPrep;
+
+  const _FeedHeaderBar({
+    required this.onRefresh,
+    required this.onBack,
+    required this.onOpenLanes,
+    required this.onOpenMyPrep,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final header = ref.watch(
+      feedControllerProvider.select((s) => (lane: s.lane, today: s.todayAnswered, combo: s.combo)),
+    );
+    return _FeedHeader(
+      lane: header.lane,
+      isOnline: ref.watch(isOnlineProvider).value ?? true,
+      streak: ref.watch(streakProvider).value ?? StreakInfo.none,
+      todayAnswered: header.today,
+      combo: header.combo,
+      onRefresh: onRefresh,
+      onBack: onBack,
+      onOpenLanes: onOpenLanes,
+      onOpenMyPrep: onOpenMyPrep,
     );
   }
 }
@@ -681,7 +793,9 @@ class _RewardBanner extends StatelessWidget {
             if (reward.kind == FeedRewardKind.streak && reward.value >= 2 ||
                 reward.kind == FeedRewardKind.dailyGoal)
               TextButton(
-                onPressed: () => ShareService.shareStreak(days: math.max(reward.value, 1)),
+                onPressed: () => reward.kind == FeedRewardKind.dailyGoal
+                    ? ShareService.shareDailyGoal(questions: reward.value)
+                    : ShareService.shareStreak(days: math.max(reward.value, 1)),
                 child: const Text('Share'),
               ),
           ],

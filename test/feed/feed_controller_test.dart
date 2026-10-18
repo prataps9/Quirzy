@@ -105,6 +105,58 @@ void main() {
     fail('no topic was passed twice');
   });
 
+  test('quick swipe-pasts re-rank even though activation happens at scroll end', () async {
+    final container = await _loadedFeed(pool);
+    final controller = container.read(feedControllerProvider.notifier);
+    // On a real device the scroll-end notification arrives while the
+    // position still reports scrolling — exactly when activate() runs.
+    controller.isScrollIdle = () => false;
+    FeedState state() => container.read(feedControllerProvider);
+
+    final passes = <String, int>{};
+    controller.activate(0);
+    for (var index = 1; index < 20; index++) {
+      final leaving = state().cards[index - 1].question.topicName;
+      passes[leaving] = (passes[leaving] ?? 0) + 1;
+      final queuedBefore = state().cards.skip(index + 1).map((c) => c.uid).toSet();
+      controller.activate(index);
+      if (passes[leaving] == 2) {
+        // The re-rank is due now and runs on this activation.
+        final queuedAfter = state().cards.skip(index + 1).map((c) => c.uid);
+        expect(queuedAfter.where(queuedBefore.contains), isEmpty);
+        return;
+      }
+    }
+    fail('no topic was passed twice');
+  });
+
+  test('liking an earlier card never replaces cards already reached', () async {
+    final container = await _loadedFeed(pool);
+    final controller = container.read(feedControllerProvider.notifier);
+    for (var i = 0; i <= 5; i++) {
+      controller.activate(i);
+    }
+    final reached = container.read(feedControllerProvider).cards.take(6).map((c) => c.uid).toList();
+
+    // Scroll back up to card 2 and like it: that re-ranks what comes next.
+    controller.activate(2);
+    controller.like(2);
+
+    final after = container.read(feedControllerProvider).cards.take(6).map((c) => c.uid).toList();
+    expect(after, reached);
+  });
+
+  test('a slower lane switch never overwrites a newer one', () async {
+    final container = await _loadedFeed(pool);
+    final controller = container.read(feedControllerProvider.notifier);
+    final first = controller.switchLane(
+      const FeedLane(type: FeedLaneType.topic, id: 'topic:History', label: 'History'),
+    );
+    final second = controller.refreshForYou();
+    await Future.wait([first, second]);
+    expect(container.read(feedControllerProvider).lane.type, FeedLaneType.forYou);
+  });
+
   group('habit loop', () {
     // Answers the active card correctly (option 0 is correct in _q).
     Future<void> answer(ProviderContainer container, int index, {bool correct = true}) async {
@@ -279,6 +331,96 @@ void main() {
       expect(state.todayAnswered, 0, reason: 'flashcards are not feed answers');
       expect((await container.read(streakProvider.future)).practisedToday, isTrue);
       expect(await SrsService().dueStartedKeys(), isEmpty);
+    });
+
+    test('a flashcard reviewed in Cards meanwhile is not rated twice', () async {
+      await FlashcardCache.save({
+        'id': 'set1',
+        'title': 'Optics',
+        'cards': [
+          {'front': 'Focal length of a plane mirror?', 'back': 'Infinite'},
+        ],
+      });
+      await SrsService().rateCard('set1', 0, SrsRating.again);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'srs_v1',
+        prefs.getString('srs_v1')!.replaceAll(RegExp(r'"d":"[^"]+"'), '"d":"2020-01-01T00:00:00.000"'),
+      );
+
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      final index = container.read(feedControllerProvider).cards.indexWhere((c) => c.kind == FeedCardKind.flashcard);
+      expect(index, greaterThanOrEqualTo(0));
+
+      // Reviewed in the Cards tab while the feed card was waiting.
+      await SrsService().rateCard('set1', 0, SrsRating.good);
+      final reps = (await SrsService().getCard('set1', 0)).repetitions;
+
+      await controller.rateFlashcard(index, SrsRating.good);
+      expect(container.read(feedControllerProvider).cards[index].rated, isTrue);
+      expect((await SrsService().getCard('set1', 0)).repetitions, reps);
+    });
+
+    test('a due flashcard that was never reached comes back after a lane switch', () async {
+      await FlashcardCache.save({
+        'id': 'set1',
+        'title': 'Optics',
+        'cards': [
+          {'front': 'Focal length of a plane mirror?', 'back': 'Infinite'},
+        ],
+      });
+      await SrsService().rateCard('set1', 0, SrsRating.again);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'srs_v1',
+        prefs.getString('srs_v1')!.replaceAll(RegExp(r'"d":"[^"]+"'), '"d":"2020-01-01T00:00:00.000"'),
+      );
+
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      bool hasFlashcard() =>
+          container.read(feedControllerProvider).cards.any((c) => c.kind == FeedCardKind.flashcard);
+      expect(hasFlashcard(), isTrue);
+
+      controller.activate(0);
+      await controller.switchLane(
+        const FeedLane(type: FeedLaneType.topic, id: 'topic:History', label: 'History'),
+      );
+      await controller.refreshForYou();
+      expect(hasFlashcard(), isTrue);
+    });
+
+    test('a fact never shows a question that is due as a quiz', () async {
+      final why = 'Option A is right because it follows from the definition used in class.';
+      final factPool = [
+        for (var i = 0; i < 30; i++)
+          PracticeQuestion(
+            id: 'f$i',
+            questionText: 'Fact question $i',
+            options: const ['A', 'B', 'C', 'D'],
+            correctIndex: 0,
+            explanation: why,
+            topic: 'Physics',
+          ),
+      ];
+      final container = await _loadedFeed(factPool);
+      final controller = container.read(feedControllerProvider.notifier);
+      await controller.selectOption(0, 1);
+      final missedId = container.read(feedControllerProvider).cards[0].question.id;
+
+      // Make that miss due today: it may now come back as a quiz, so it
+      // must not also appear as a fact.
+      final prefs = await SharedPreferences.getInstance();
+      final vault = prefs.getString('feed_revision_vault')!;
+      await prefs.setString(
+        'feed_revision_vault',
+        vault.replaceAll(RegExp(r'"dueDate":"[^"]+"'), '"dueDate":"2020-01-01T00:00:00.000"'),
+      );
+      await controller.refreshForYou();
+
+      final cards = container.read(feedControllerProvider).cards;
+      expect(cards.where((c) => c.kind == FeedCardKind.fact && c.question.id == missedId), isEmpty);
     });
 
     test('facts are read, not answered', () async {

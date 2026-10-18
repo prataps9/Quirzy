@@ -65,11 +65,12 @@ class FeedRevisionService {
 
   Future<int> getDueCount() async => (await getDueQuestions()).length;
 
-  /// Every question still in the vault — ones the user has missed and not
-  /// yet mastered — most recently missed first.
-  Future<List<PracticeQuestion>> getMissedQuestions() async {
+  /// Vault questions that are not due yet — missed before, not mastered,
+  /// and not about to come up as a quiz — most recently missed first.
+  Future<List<PracticeQuestion>> getMissedNotDue() async {
     final entries = await _load();
-    return entries.reversed.map((e) => e.question).toList();
+    final now = DateTime.now();
+    return entries.reversed.where((e) => e.dueDate.isAfter(now)).map((e) => e.question).toList();
   }
 
   /// Called after every feed answer (wrong OR right). Only questions that
