@@ -97,7 +97,7 @@ class RecapCard extends StatelessWidget {
                     const SizedBox(height: 10),
                     AppButton.secondary(
                       label: 'Practise ${recap.weakTopic}',
-                      icon: Icons.fitness_center_rounded,
+                      icon: Icons.track_changes_rounded,
                       onPressed: () => onPracticeTopic(recap.weakTopic!),
                     ),
                   ],

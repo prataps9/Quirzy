@@ -10,6 +10,7 @@ import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../../shared/services/share_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../progress/services/share_card_service.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
 import '../services/feed_audio.dart';
@@ -17,6 +18,7 @@ import '../services/streak_service.dart';
 import '../widgets/deep_dive_sheet.dart';
 import '../widgets/feed_question_card.dart';
 import '../widgets/feed_session_cards.dart';
+import '../widgets/feed_share_cards.dart';
 import '../widgets/lane_switcher_sheet.dart';
 import '../widgets/long_press_menu_sheet.dart';
 
@@ -305,12 +307,32 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   void _openMyPrep() => ref.read(tabIndexProvider.notifier).state = 2;
 
-  void _share(PracticeQuestion question) {
-    ShareService.shareQuestion(
+  /// Shares a question as an image card, falling back to text if the
+  /// picture can't be made.
+  Future<void> _share(PracticeQuestion question) async {
+    final shared = await ShareCardService.shareWidget(
+      context,
+      QuestionShareCard(question: question),
+      text: 'Can you get this ${question.topicName} question? Practise on Quirzy #Quirzy',
+      fileName: 'quirzy_question.png',
+    );
+    if (shared) return;
+    await ShareService.shareQuestion(
       topic: question.topicName,
       questionText: question.questionText,
       options: question.options,
     );
+  }
+
+  Future<void> _shareRecap(FeedRecap recap) async {
+    final shared = await ShareCardService.shareWidget(
+      context,
+      RecapShareCard(recap: recap),
+      text: 'My Quirzy practice session #Quirzy',
+      fileName: 'quirzy_session.png',
+    );
+    if (shared) return;
+    await ShareService.shareSession(answered: recap.answered, accuracy: recap.accuracyPercent, xp: recap.xp);
   }
 
   @override
@@ -468,11 +490,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             _controller.acknowledgeCard(index);
             _controller.switchLane(FeedLane(type: FeedLaneType.topic, id: 'topic:$t', label: t));
           },
-          onShare: () => ShareService.shareSession(
-            answered: card.recap!.answered,
-            accuracy: card.recap!.accuracyPercent,
-            xp: card.recap!.xp,
-          ),
+          onShare: () => _shareRecap(card.recap!),
           onTakeBreak: () {
             _controller.acknowledgeCard(index);
             ref.read(tabIndexProvider.notifier).state = 1;
@@ -696,12 +714,21 @@ class _ComboChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
-      child: Text(
-        '×$combo',
-        style: Theme.of(context).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w800),
+    // A quick "bump" each time the combo grows (keyed on the value, so it
+    // replays for every new count).
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(combo),
+      tween: Tween(begin: 1.3, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
+        child: Text(
+          '×$combo',
+          style: Theme.of(context).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w800),
+        ),
       ),
     );
   }
@@ -729,11 +756,17 @@ class _GoalRing extends StatelessWidget {
             SizedBox(
               width: 34,
               height: 34,
-              child: CircularProgressIndicator(
-                value: progress,
-                strokeWidth: 3.5,
-                backgroundColor: p.border,
-                color: reached ? p.success : p.accentText,
+              // Fills smoothly from the old value to the new one.
+              child: TweenAnimationBuilder<double>(
+                tween: Tween(end: progress),
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, _) => CircularProgressIndicator(
+                  value: value,
+                  strokeWidth: 3.5,
+                  backgroundColor: p.border,
+                  color: reached ? p.success : p.accentText,
+                ),
               ),
             ),
             if (reached)
