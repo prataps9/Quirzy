@@ -298,6 +298,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    ref.listen<String?>(homeTopicDraftProvider, (_, draft) {
+      if (draft == null) return;
+      _topicController.text = draft;
+      _topicController.selection = TextSelection.collapsed(offset: draft.length);
+      ref.read(homeTopicDraftProvider.notifier).state = null;
+    });
     final localizations = AppLocalizations.of(context)!;
     final text = Theme.of(context).textTheme;
     final p = context.palette;

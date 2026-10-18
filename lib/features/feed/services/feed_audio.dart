@@ -50,14 +50,19 @@ class FeedAudio {
         return 'Remember this? ${q.questionText} The answer is ${q.options[q.correctIndex]}. ${q.explanation}';
       case FeedCardKind.flashcard:
         return card.flipped ? card.flashcard!.back : card.flashcard!.front;
+      case FeedCardKind.recap:
+      case FeedCardKind.caughtUp:
+        return '';
     }
   }
 
   Future<void> speak(FeedCardState card) async {
     try {
+      final words = script(card);
+      if (words.isEmpty) return;
       final tts = await _engine();
       await tts.stop();
-      await tts.speak(script(card));
+      await tts.speak(words);
     } catch (e) {
       debugPrint('FeedAudio: speak failed: $e');
     }

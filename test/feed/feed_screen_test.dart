@@ -171,6 +171,36 @@ void main() {
     await _tearDown(tester);
   });
 
+  testWidgets('the session recap shows in the feed and "Keep going" moves on', (tester) async {
+    SettingsService().setAutoAdvance(false);
+    await _pumpFeed(tester, [for (var i = 0; i < 30; i++) _q(i.isEven ? 'Math' : 'History', i)]);
+    final container = ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+    final controller = container.read(feedControllerProvider.notifier);
+    for (var i = 0; i < kFeedRecapEvery; i++) {
+      controller.activate(i);
+      await tester.runAsync(() => controller.selectOption(i, 0));
+    }
+    await tester.pump();
+    final recapIndex = container.read(feedControllerProvider).cards.indexWhere((c) => c.kind == FeedCardKind.recap);
+    expect(recapIndex, kFeedRecapEvery);
+
+    tester.widget<PageView>(find.byType(PageView)).controller!.jumpToPage(recapIndex);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('Your session so far'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Keep going'));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(_page(tester), closeTo(recapIndex + 1, 0.01));
+    expect(container.read(feedControllerProvider).cards[recapIndex].isResolved, isTrue);
+    await _tearDown(tester);
+  });
+
   group('sound', () {
     final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
 

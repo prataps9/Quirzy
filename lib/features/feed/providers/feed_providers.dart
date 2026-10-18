@@ -23,6 +23,14 @@ import '../services/xp_service.dart';
 const int kFeedDailyTarget = 50;
 const int kFeedBreakNudgeMinutes = 25;
 
+/// A session recap card is slotted in after this many answers.
+const int kFeedRecapEvery = 15;
+
+/// How many recent answers the adaptive mix looks at, and how many it
+/// needs before it adapts at all.
+const int _recentWindow = 10;
+const int _recentMinimum = 5;
+
 /// Below this many eligible questions For You plays through once instead
 /// of recycling, so a tiny pool never loops on the same few cards.
 const int kMinInfinitePool = 12;
@@ -164,6 +172,12 @@ class FeedController extends Notifier<FeedState> {
   List<PracticeQuestion> _facts = [];
   List<FeedFlashcard> _dueFlashcards = [];
   final Set<String> _shownExtras = {};
+
+  /// This session's answers per topic, the latest answers (for the
+  /// adaptive mix) and answers since the last recap card.
+  final Map<String, ({int attempts, int correct})> _sessionTopics = {};
+  final List<bool> _recent = [];
+  int _answersSinceRecap = 0;
 
   int _nextUid = 0;
   int _rewardId = 0;
@@ -319,12 +333,53 @@ class FeedController extends Notifier<FeedState> {
           if (!_shownExtras.contains('fact:${q.id}') && !inFeed.contains(q.id)) q,
       ],
       flashcards: [for (final f in _dueFlashcards) if (!_shownExtras.contains('card:${f.srsKey}')) f],
+      recentAccuracy: recentAccuracy,
     );
     for (final slot in slots) {
       if (slot.kind == FeedCardKind.fact) _shownExtras.add('fact:${slot.question.id}');
       if (slot.kind == FeedCardKind.flashcard) _shownExtras.add('card:${slot.flashcard!.srsKey}');
     }
     return slots.map(_slotCard).toList();
+  }
+
+  /// Share of the last few answers that were right, once there are enough
+  /// to mean something; the mixer uses it to adapt.
+  double? get recentAccuracy =>
+      _recent.length < _recentMinimum ? null : _recent.where((c) => c).length / _recent.length;
+
+  /// Puts the one-per-session "You've seen everything new" card in front of
+  /// the first batch that has to recycle questions.
+  List<FeedCardState> _withCaughtUp(List<FeedCardState> cards, bool caughtUp) {
+    if (!caughtUp) return cards;
+    final topic = _suggestedTopic();
+    return [
+      FeedCardState(
+        uid: _nextUid++,
+        kind: FeedCardKind.caughtUp,
+        question: PracticeQuestion(
+          id: 'caughtup:$_nextUid',
+          questionText: "You've seen everything new",
+          options: const ['-'],
+          correctIndex: 0,
+          topic: topic,
+        ),
+      ),
+      ...cards,
+    ];
+  }
+
+  /// The topic to offer more of: the one practised most this session, or
+  /// else the biggest topic in the pool.
+  String _suggestedTopic() {
+    if (_sessionTopics.isNotEmpty) {
+      return _sessionTopics.entries.reduce((a, b) => a.value.attempts >= b.value.attempts ? a : b).key;
+    }
+    final counts = <String, int>{};
+    for (final q in _eligible) {
+      counts[q.topicName] = (counts[q.topicName] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return 'General';
+    return counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
   }
 
   /// True the first time this session that fresh questions have run out.
@@ -375,7 +430,6 @@ class FeedController extends Notifier<FeedState> {
 
     var cards = <FeedCardState>[];
     var hasMore = false;
-    var caughtUp = false;
     if (target.isInfinite) {
       if (_tinyPool) _session.reset();
       final batch = _ranker.nextBatch(
@@ -384,9 +438,8 @@ class FeedController extends Notifier<FeedState> {
         size: _tinyPool ? _eligible.length : _batchSize,
         allowRecycle: !_tinyPool,
       );
-      cards = _cardsFrom(batch);
+      cards = _withCaughtUp(_cardsFrom(batch), _caughtUpNow(batch));
       hasMore = !_tinyPool && batch.picks.isNotEmpty;
-      caughtUp = _caughtUpNow(batch);
     } else {
       cards = (await _questionsForLane(target)).map((q) => _card(q)).toList();
     }
@@ -420,7 +473,6 @@ class FeedController extends Notifier<FeedState> {
       laneEpoch: state.laneEpoch + 1,
       hasMore: hasMore,
       allTopicsHidden: _fullPool.isNotEmpty && _muted.isNotEmpty && _eligible.isEmpty,
-      pendingCaughtUpNotice: caughtUp ? true : null,
     );
     ref.invalidate(topicStoriesProvider);
   }
@@ -448,7 +500,8 @@ class FeedController extends Notifier<FeedState> {
     if (index < 0 || index >= state.cards.length) return;
 
     _frontier = math.max(_frontier, index);
-    _engagement.markSeen(state.cards[index].question.engagementKey);
+    final card = state.cards[index];
+    if (!card.isSynthetic) _engagement.markSeen(card.question.engagementKey);
     _dwell.reset();
     if (_visible) _dwell.start();
     if (_refillPending) {
@@ -534,11 +587,9 @@ class FeedController extends Notifier<FeedState> {
     if (!state.lane.isInfinite || !state.hasMore) return;
     if (index < state.cards.length - _appendThreshold) return;
     final batch = _ranker.nextBatch(_snapshot(), _session, size: _batchSize);
-    final caughtUp = _caughtUpNow(batch);
     state = state.copyWith(
-      cards: [...state.cards, ..._cardsFrom(batch, before: state.cards)],
+      cards: [...state.cards, ..._withCaughtUp(_cardsFrom(batch, before: state.cards), _caughtUpNow(batch))],
       hasMore: batch.picks.isNotEmpty,
-      pendingCaughtUpNotice: caughtUp ? true : null,
     );
   }
 
@@ -565,11 +616,10 @@ class FeedController extends Notifier<FeedState> {
       size: _tinyPool ? _eligible.length : _batchSize,
       allowRecycle: !_tinyPool,
     );
-    final caughtUp = _caughtUpNow(batch);
+    final fresh = _cardsFrom(batch, before: [...kept, ...pinned]);
     state = state.copyWith(
-      cards: [...kept, ...pinned, ..._cardsFrom(batch, before: [...kept, ...pinned])],
+      cards: [...kept, ...pinned, ..._withCaughtUp(fresh, _caughtUpNow(batch))],
       hasMore: !_tinyPool && batch.picks.isNotEmpty,
-      pendingCaughtUpNotice: caughtUp ? true : null,
     );
   }
 
@@ -633,17 +683,26 @@ class FeedController extends Notifier<FeedState> {
     required int xp,
   }) async {
     final combo = correct ? state.combo + 1 : 0;
+    final milestone = correct && combo % kFeedComboMilestone == 0;
+    final earned = correct ? xp + (milestone ? kFeedComboBonusXp : 0) : 0;
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = answered;
     state = state.copyWith(
       cards: cards,
       combo: combo,
+      bestCombo: math.max(state.bestCombo, combo),
+      sessionXp: state.sessionXp + earned,
       sessionAnswered: state.sessionAnswered + 1,
       sessionCorrect: state.sessionCorrect + (correct ? 1 : 0),
     );
 
     final question = answered.question;
     final topic = question.topicName;
+    final session = _sessionTopics[topic] ?? (attempts: 0, correct: 0);
+    _sessionTopics[topic] = (attempts: session.attempts + 1, correct: session.correct + (correct ? 1 : 0));
+    _recent.add(correct);
+    if (_recent.length > _recentWindow) _recent.removeAt(0);
+    _answersSinceRecap++;
     _engagement.record(topic, EngagementSignal.answered);
     _session.quickPassStreak[topic] = 0;
     final stat = _topicStats[topic] ?? const TopicStat();
@@ -656,11 +715,10 @@ class FeedController extends Notifier<FeedState> {
     await ref.read(feedRevisionServiceProvider).recordOutcome(question, correct);
 
     var leveledUpTo = 0;
-    final milestone = correct && combo % kFeedComboMilestone == 0;
     if (correct) {
       final xpService = ref.read(xpServiceProvider);
       final levelBefore = (await xpService.getLevel()).level;
-      await xpService.addXPToday(xp + (milestone ? kFeedComboBonusXp : 0));
+      await xpService.addXPToday(earned);
       final levelAfter = (await xpService.getLevel()).level;
       if (levelAfter > levelBefore) leveledUpTo = levelAfter;
     }
@@ -672,14 +730,67 @@ class FeedController extends Notifier<FeedState> {
       comboMilestone: milestone ? combo : 0,
       firstOfDay: attempt.firstOfDay,
     );
+    _maybeInsertRecap();
+  }
+
+  /// Slots a "your session so far" card in as the next new card every
+  /// [kFeedRecapEvery] answers — and once, in a long session, a recap
+  /// that suggests a break (instead of an interrupting dialog).
+  void _maybeInsertRecap() {
+    if (!state.lane.isInfinite || state.cards.isEmpty) return;
+    final minutes = DateTime.now().difference(state.sessionStart).inMinutes;
+    final breakDue = minutes >= kFeedBreakNudgeMinutes && !state.breakNudgeShown;
+    if (_answersSinceRecap < kFeedRecapEvery && !breakDue) return;
+    _answersSinceRecap = 0;
+
+    final recap = FeedRecap.fromSession(
+      topics: _sessionTopics,
+      xp: state.sessionXp,
+      bestCombo: state.bestCombo,
+      suggestBreak: breakDue,
+    );
+    final card = FeedCardState(
+      uid: _nextUid++,
+      kind: FeedCardKind.recap,
+      question: PracticeQuestion(
+        id: 'recap:$_nextUid',
+        questionText: 'Your session',
+        options: const ['-'],
+        correctIndex: 0,
+        topic: 'Your session',
+      ),
+      recap: recap,
+    );
+    // After everything already reached, so no seen card moves.
+    final insertAt = (math.max(_activeIndex ?? 0, _frontier) + 1).clamp(0, state.cards.length);
+    state = state.copyWith(
+      cards: [...state.cards.take(insertAt), card, ...state.cards.skip(insertAt)],
+      breakNudgeShown: breakDue ? true : null,
+    );
   }
 
   /// A fact card was read to the end or tapped through. It counts as
-  /// reading, not answering: no XP and no daily-goal credit.
+  /// reading, not answering: no XP and no daily-goal credit, but reading a
+  /// whole fact is a light sign of interest in its topic.
   void acknowledgeFact(int index) {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
     if (card.kind != FeedCardKind.fact || card.acknowledged) return;
+    _engagement.record(card.question.topicName, EngagementSignal.explanationOpened);
+    _acknowledge(index);
+  }
+
+  /// Marks a recap or "caught up" card as done (its button was used).
+  void acknowledgeCard(int index) {
+    if (index < 0 || index >= state.cards.length) return;
+    final kind = state.cards[index].kind;
+    if (kind != FeedCardKind.recap && kind != FeedCardKind.caughtUp) return;
+    _acknowledge(index);
+  }
+
+  void _acknowledge(int index) {
+    final card = state.cards[index];
+    if (card.acknowledged) return;
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = card.copyWith(acknowledged: true);
     state = state.copyWith(cards: cards);
@@ -751,11 +862,6 @@ class FeedController extends Notifier<FeedState> {
       dailyTargetCelebrated: goalReached ? true : null,
     );
 
-    final elapsedMinutes = DateTime.now().difference(state.sessionStart).inMinutes;
-    if (elapsedMinutes >= kFeedBreakNudgeMinutes && !state.breakNudgeShown) {
-      state = state.copyWith(breakNudgeShown: true, pendingBreakNudge: true);
-    }
-
     ref.invalidate(streakProvider);
     ref.invalidate(homeStatsProvider);
     ref.invalidate(xpTotalProvider);
@@ -790,14 +896,6 @@ class FeedController extends Notifier<FeedState> {
     );
   }
 
-  void acknowledgeBreakNudge() {
-    state = state.copyWith(pendingBreakNudge: false);
-  }
-
-  void acknowledgeCaughtUpNotice() {
-    state = state.copyWith(pendingCaughtUpNotice: false);
-  }
-
   /// Double-tap: like only, never unlike.
   void like(int index) {
     if (index < 0 || index >= state.cards.length) return;
@@ -811,6 +909,7 @@ class FeedController extends Notifier<FeedState> {
 
   void _setLiked(int index, bool liked) {
     final card = state.cards[index];
+    if (card.isSynthetic) return;
     final topic = card.question.topicName;
     final cards = List<FeedCardState>.from(state.cards);
     cards[index] = card.copyWith(liked: liked);
@@ -831,6 +930,7 @@ class FeedController extends Notifier<FeedState> {
   Future<void> toggleBookmark(int index) async {
     if (index < 0 || index >= state.cards.length) return;
     final card = state.cards[index];
+    if (card.isSynthetic) return;
     final newValue = !card.bookmarked;
 
     final cards = List<FeedCardState>.from(state.cards);
@@ -910,8 +1010,10 @@ class FeedController extends Notifier<FeedState> {
   }
 
   Future<void> markTooHard(PracticeQuestion question) async {
-    // Surfaces the question again soon, same as a wrong answer would.
+    // Surfaces the question again soon, same as a wrong answer would…
     await ref.read(feedRevisionServiceProvider).recordOutcome(question, false);
+    // …and eases off that topic for now, like swiping past it.
+    _engagement.record(question.topicName, EngagementSignal.quickPass);
   }
 
   Future<void> recordWrongReason(String reason) async {

@@ -130,6 +130,75 @@ enum FeedCardKind {
 
   /// A due flashcard from Cards, flipped and rated in the feed.
   flashcard,
+
+  /// "Your session so far" — answered, accuracy, XP, topics — every few
+  /// answers, and the gentle take-a-break moment in long sessions.
+  recap,
+
+  /// "You've seen everything new" — offers to generate more of a topic.
+  caughtUp,
+}
+
+/// One session-recap card's numbers, frozen when the card is created.
+class FeedRecap {
+  final int answered;
+  final int correct;
+  final int xp;
+  final int bestCombo;
+
+  /// Topics practised this session, most-practised first.
+  final List<String> topTopics;
+
+  /// The topic with the lowest accuracy this session (2+ attempts), if any.
+  final String? weakTopic;
+
+  /// Shown in a long session: the headline suggests a break.
+  final bool suggestBreak;
+
+  const FeedRecap({
+    required this.answered,
+    required this.correct,
+    required this.xp,
+    required this.bestCombo,
+    required this.topTopics,
+    required this.weakTopic,
+    required this.suggestBreak,
+  });
+
+  int get accuracyPercent => answered == 0 ? 0 : (correct * 100 / answered).round();
+
+  /// Builds the recap from per-topic (attempts, correct) counts.
+  factory FeedRecap.fromSession({
+    required Map<String, ({int attempts, int correct})> topics,
+    required int xp,
+    required int bestCombo,
+    required bool suggestBreak,
+  }) {
+    final answered = topics.values.fold<int>(0, (sum, t) => sum + t.attempts);
+    final correct = topics.values.fold<int>(0, (sum, t) => sum + t.correct);
+    final ranked = topics.keys.toList()
+      ..sort((a, b) => topics[b]!.attempts.compareTo(topics[a]!.attempts));
+    String? weak;
+    var weakest = 2.0;
+    for (final entry in topics.entries) {
+      final t = entry.value;
+      if (t.attempts < 2) continue;
+      final accuracy = t.correct / t.attempts;
+      if (accuracy < weakest && accuracy < 0.7) {
+        weakest = accuracy;
+        weak = entry.key;
+      }
+    }
+    return FeedRecap(
+      answered: answered,
+      correct: correct,
+      xp: xp,
+      bestCombo: bestCombo,
+      topTopics: ranked.take(3).toList(),
+      weakTopic: weak,
+      suggestBreak: suggestBreak,
+    );
+  }
 }
 
 /// A flashcard shown in the feed, from a set cached on the device.
@@ -193,6 +262,9 @@ class FeedCardState {
   final bool flipped;
   final bool rated;
 
+  /// Recap: the session numbers it shows.
+  final FeedRecap? recap;
+
   const FeedCardState({
     required this.uid,
     required this.question,
@@ -209,6 +281,7 @@ class FeedCardState {
     this.flashcard,
     this.flipped = false,
     this.rated = false,
+    this.recap,
   });
 
   /// Whether the shown True/False option is the right answer.
@@ -217,7 +290,7 @@ class FeedCardState {
   bool get isResolved => switch (kind) {
     FeedCardKind.question => selectedOption != null || skipped,
     FeedCardKind.trueFalse => tfChoice != null || skipped,
-    FeedCardKind.fact => acknowledged,
+    FeedCardKind.fact || FeedCardKind.recap || FeedCardKind.caughtUp => acknowledged,
     FeedCardKind.flashcard => rated,
   };
 
@@ -232,6 +305,11 @@ class FeedCardState {
 
   /// Cards that are answered for stats, XP and the daily goal.
   bool get isQuiz => fromRanker;
+
+  /// Cards whose [question] is a stand-in, not a question from the pool:
+  /// they must not touch engagement, bookmarks or the revision vault.
+  bool get isSynthetic =>
+      kind == FeedCardKind.flashcard || kind == FeedCardKind.recap || kind == FeedCardKind.caughtUp;
 
   FeedCardState copyWith({
     int? selectedOption,
@@ -259,6 +337,7 @@ class FeedCardState {
       flashcard: flashcard,
       flipped: flipped ?? this.flipped,
       rated: rated ?? this.rated,
+      recap: recap,
     );
   }
 }
@@ -297,8 +376,8 @@ class FeedState {
   final int sessionAnswered;
   final int sessionCorrect;
   final DateTime sessionStart;
+  /// A long session's recap has already suggested a break.
   final bool breakNudgeShown;
-  final bool pendingBreakNudge;
   final bool dailyTargetCelebrated;
   final bool showHints;
   final int startIndex;
@@ -314,10 +393,13 @@ class FeedState {
 
   /// Every topic with content is hidden, so the feed is empty by choice.
   final bool allTopicsHidden;
-  final bool pendingCaughtUpNotice;
 
   /// Correct answers in a row this session; wrong answers reset it.
   final int combo;
+
+  /// Best combo and XP earned this session, for the recap card.
+  final int bestCombo;
+  final int sessionXp;
 
   /// Questions answered or revealed today, for the daily-goal ring.
   final int todayAnswered;
@@ -335,15 +417,15 @@ class FeedState {
     this.sessionCorrect = 0,
     DateTime? sessionStart,
     this.breakNudgeShown = false,
-    this.pendingBreakNudge = false,
     this.dailyTargetCelebrated = false,
     this.showHints = true,
     this.startIndex = 0,
     this.laneEpoch = 0,
     this.hasMore = false,
     this.allTopicsHidden = false,
-    this.pendingCaughtUpNotice = false,
     this.combo = 0,
+    this.bestCombo = 0,
+    this.sessionXp = 0,
     this.todayAnswered = 0,
     this.reward,
   }) : sessionStart = sessionStart ?? DateTime.now();
@@ -362,15 +444,15 @@ class FeedState {
     int? sessionAnswered,
     int? sessionCorrect,
     bool? breakNudgeShown,
-    bool? pendingBreakNudge,
     bool? dailyTargetCelebrated,
     bool? showHints,
     int? startIndex,
     int? laneEpoch,
     bool? hasMore,
     bool? allTopicsHidden,
-    bool? pendingCaughtUpNotice,
     int? combo,
+    int? bestCombo,
+    int? sessionXp,
     int? todayAnswered,
     FeedReward? reward,
   }) {
@@ -384,7 +466,6 @@ class FeedState {
       sessionCorrect: sessionCorrect ?? this.sessionCorrect,
       sessionStart: sessionStart,
       breakNudgeShown: breakNudgeShown ?? this.breakNudgeShown,
-      pendingBreakNudge: pendingBreakNudge ?? this.pendingBreakNudge,
       dailyTargetCelebrated:
           dailyTargetCelebrated ?? this.dailyTargetCelebrated,
       showHints: showHints ?? this.showHints,
@@ -392,9 +473,9 @@ class FeedState {
       laneEpoch: laneEpoch ?? this.laneEpoch,
       hasMore: hasMore ?? this.hasMore,
       allTopicsHidden: allTopicsHidden ?? this.allTopicsHidden,
-      pendingCaughtUpNotice:
-          pendingCaughtUpNotice ?? this.pendingCaughtUpNotice,
       combo: combo ?? this.combo,
+      bestCombo: bestCombo ?? this.bestCombo,
+      sessionXp: sessionXp ?? this.sessionXp,
       todayAnswered: todayAnswered ?? this.todayAnswered,
       reward: reward ?? this.reward,
     );

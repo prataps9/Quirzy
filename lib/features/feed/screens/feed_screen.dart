@@ -16,6 +16,7 @@ import '../services/feed_audio.dart';
 import '../services/streak_service.dart';
 import '../widgets/deep_dive_sheet.dart';
 import '../widgets/feed_question_card.dart';
+import '../widgets/feed_session_cards.dart';
 import '../widgets/lane_switcher_sheet.dart';
 import '../widgets/long_press_menu_sheet.dart';
 
@@ -172,6 +173,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     if (_currentIndex >= cards.length) return;
     final card = cards[_currentIndex];
     if (!force && card.uid == _lastSpokenUid) return;
+    if (card.kind == FeedCardKind.recap || card.kind == FeedCardKind.caughtUp) return;
     _lastSpokenUid = card.uid;
     _audio.speak(card);
   }
@@ -197,6 +199,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final Duration? delay = switch (card.kind) {
       FeedCardKind.question || FeedCardKind.trueFalse => card.isCorrect ? _advanceAfterCorrect : null,
       FeedCardKind.fact || FeedCardKind.flashcard => _advanceAfterRead,
+      // Their buttons move on themselves.
+      FeedCardKind.recap || FeedCardKind.caughtUp => null,
     };
     if (delay == null) return;
     final from = _currentIndex;
@@ -217,6 +221,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         curve: Curves.easeOutCubic,
       );
     });
+  }
+
+  /// A card's own "Keep going" button: mark it done and go to the next.
+  void _moveOn(int index) {
+    _controller.acknowledgeCard(index);
+    if (!_pageController.hasClients) return;
+    _pageController.animateToPage(
+      index + 1,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   void _handlePageChanged(int newIndex) {
@@ -298,29 +313,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  void _showBreakNudge(FeedState feedState) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Take 5?'),
-        content: Text("You've done ${feedState.sessionAnswered} questions this session."),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('5 more min'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              ref.read(tabIndexProvider.notifier).state = 1; // Home tab
-            },
-            child: const Text('Take a break'),
-          ),
-        ],
-      ),
-    ).then((_) => _controller.acknowledgeBreakNudge());
-  }
-
   @override
   Widget build(BuildContext context) {
     final view = ref.watch(feedControllerProvider.select(_viewOf));
@@ -342,17 +334,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         // Reading the back of a flipped flashcard aloud.
         if (before.uid == now.uid && !before.flipped && now.flipped && !now.rated) _readActive(force: true);
       }
-      if (next.pendingBreakNudge && !(previous?.pendingBreakNudge ?? false)) {
-        _showBreakNudge(next);
-      }
       final reward = next.reward;
       if (reward != null && reward.id != previous?.reward?.id) _showReward(reward);
-      if (next.pendingCaughtUpNotice && !(previous?.pendingCaughtUpNotice ?? false)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("You're all caught up — now mixing in questions worth another look")),
-        );
-        _controller.acknowledgeCaughtUpNotice();
-      }
     });
 
     return Scaffold(
@@ -475,6 +458,42 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     required bool readAloud,
   }) {
     final topic = card.question.topicName;
+    if (card.kind == FeedCardKind.recap) {
+      return RepaintBoundary(
+        key: ValueKey('feed_card_${card.uid}'),
+        child: RecapCard(
+          recap: card.recap!,
+          onKeepGoing: () => _moveOn(index),
+          onPracticeTopic: (t) {
+            _controller.acknowledgeCard(index);
+            _controller.switchLane(FeedLane(type: FeedLaneType.topic, id: 'topic:$t', label: t));
+          },
+          onShare: () => ShareService.shareSession(
+            answered: card.recap!.answered,
+            accuracy: card.recap!.accuracyPercent,
+            xp: card.recap!.xp,
+          ),
+          onTakeBreak: () {
+            _controller.acknowledgeCard(index);
+            ref.read(tabIndexProvider.notifier).state = 1;
+          },
+        ),
+      );
+    }
+    if (card.kind == FeedCardKind.caughtUp) {
+      return RepaintBoundary(
+        key: ValueKey('feed_card_${card.uid}'),
+        child: CaughtUpCard(
+          topic: topic,
+          onGenerateMore: () {
+            _controller.acknowledgeCard(index);
+            ref.read(homeTopicDraftProvider.notifier).state = topic;
+            ref.read(tabIndexProvider.notifier).state = 1;
+          },
+          onKeepReviewing: () => _moveOn(index),
+        ),
+      );
+    }
     // A flashcard's "topic" is its set title, not a feed topic.
     final canOpenTopic = view.lane.type != FeedLaneType.topic && card.kind != FeedCardKind.flashcard;
     return RepaintBoundary(

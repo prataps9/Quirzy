@@ -452,4 +452,79 @@ void main() {
       expect(state.todayAnswered, before);
     });
   });
+
+  group('session', () {
+    test('a recap card follows every 15 answers, with the session numbers', () async {
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      FeedState state() => container.read(feedControllerProvider);
+
+      var index = 0;
+      for (var answered = 0; answered < kFeedRecapEvery; answered++) {
+        while (state().cards[index].kind != FeedCardKind.question) {
+          index++;
+        }
+        controller.activate(index);
+        await controller.selectOption(index, answered < 12 ? 0 : 1); // 12 right, 3 wrong
+        index++;
+      }
+
+      final recapIndex = state().cards.indexWhere((c) => c.kind == FeedCardKind.recap);
+      expect(recapIndex, index, reason: 'right after the card just answered');
+      final recap = state().cards[recapIndex].recap!;
+      expect(recap.answered, 15);
+      expect(recap.accuracyPercent, 80);
+      expect(recap.xp, state().sessionXp);
+      expect(recap.bestCombo, 12);
+      expect(recap.topTopics, isNotEmpty);
+      expect(recap.suggestBreak, isFalse);
+
+      // Reading it is not practice.
+      final today = state().todayAnswered;
+      controller.activate(recapIndex);
+      controller.acknowledgeCard(recapIndex);
+      expect(state().cards[recapIndex].isResolved, isTrue);
+      expect(state().todayAnswered, today);
+      expect(state().cards.where((c) => c.kind == FeedCardKind.recap), hasLength(1));
+    });
+
+    test('recent accuracy is only known after a few answers', () async {
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      expect(controller.recentAccuracy, isNull);
+      for (var i = 0; i < 5; i++) {
+        await controller.selectOption(i, i == 0 ? 1 : 0);
+      }
+      expect(controller.recentAccuracy, closeTo(0.8, 0.001));
+    });
+
+    test('running out of new questions shows one "seen everything" card', () async {
+      final small = [for (var i = 0; i < 16; i++) _q(i.isEven ? 'Physics' : 'History', i)];
+      final container = await _loadedFeed(small);
+      final controller = container.read(feedControllerProvider.notifier);
+      for (var i = 0; i < 40; i++) {
+        controller.activate(i);
+      }
+      final cards = container.read(feedControllerProvider).cards;
+      final caughtUp = cards.where((c) => c.kind == FeedCardKind.caughtUp).toList();
+      expect(caughtUp, hasLength(1));
+      expect(['Physics', 'History'], contains(caughtUp.single.question.topicName));
+    });
+
+    test('stand-in cards are never liked or saved', () async {
+      final container = await _loadedFeed(pool);
+      final controller = container.read(feedControllerProvider.notifier);
+      for (var i = 0; i < kFeedRecapEvery; i++) {
+        controller.activate(i);
+        await controller.selectOption(i, 0);
+      }
+      final index = container.read(feedControllerProvider).cards.indexWhere((c) => c.kind == FeedCardKind.recap);
+      expect(index, greaterThan(0));
+      controller.like(index);
+      await controller.toggleBookmark(index);
+      final card = container.read(feedControllerProvider).cards[index];
+      expect(card.liked, isFalse);
+      expect(card.bookmarked, isFalse);
+    });
+  });
 }

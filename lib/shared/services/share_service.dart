@@ -97,6 +97,19 @@ Daily goal smashed. #Quirzy
     );
   }
 
+  /// Shares a practice session's numbers.
+  static Future<void> shareSession({required int answered, required int accuracy, required int xp}) async {
+    final text =
+        '''
+⚡ Just practised $answered questions on Quirzy — $accuracy% right, +$xp XP.
+
+Your turn? #Quirzy
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'My Quirzy practice session'),
+    );
+  }
+
   /// Shares a practice question as a challenge, without revealing the
   /// answer.
   static Future<void> shareQuestion({
