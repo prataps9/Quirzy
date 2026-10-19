@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/practice_content_service.dart';
@@ -24,7 +24,11 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
   int _currentFlashcard = 0;
   bool _isFlipped = false;
 
-  // Mini quiz state
+  /// The set's questions, normalised once (see [_quizAsFeedQuestions]) so
+  /// display, grading and "Add to my feed" all read the same shape.
+  late final List<Map<String, dynamic>> _questions = _quizAsFeedQuestions();
+
+  // Practice questions state
   List<int?> _quizAnswers = [];
   bool _quizSubmitted = false;
 
@@ -35,7 +39,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _quizAnswers = List.filled(widget.material.quiz.length, null);
+    _quizAnswers = List.filled(_questions.length, null);
   }
 
   @override
@@ -57,14 +61,15 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
             Text(
               widget.material.topic,
               style: textTheme.titleMedium,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            Text('Study Set', style: textTheme.labelSmall!.copyWith(color: p.accentText)),
+            Text('Study set', style: textTheme.labelSmall!.copyWith(color: p.accentText)),
           ],
         ),
         bottom: TabBar(
           controller: _tabController,
-          labelStyle: textTheme.labelLarge!.copyWith(fontSize: 13, fontWeight: FontWeight.w800),
+          labelStyle: textTheme.labelLarge!.copyWith(fontWeight: FontWeight.w800),
           unselectedLabelStyle: textTheme.labelMedium!.copyWith(fontWeight: FontWeight.w600),
           labelColor: p.accentText,
           unselectedLabelColor: p.textMuted,
@@ -121,7 +126,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
   }
 
   Future<void> _addToFeed() async {
-    final questions = _quizAsFeedQuestions();
+    final questions = _questions;
     if (questions.isEmpty) return;
     HapticFeedback.mediumImpact();
     setState(() => _addingToFeed = true);
@@ -137,24 +142,26 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
       if (!mounted) return;
       setState(() => _addedToFeed = true);
       final navigator = Navigator.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added ${questions.length} questions on "$topic" to your feed'),
-          action: SnackBarAction(
-            label: 'Practice',
-            onPressed: () {
-              ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
-              navigator.popUntil((route) => route.isFirst);
-            },
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              questions.length == 1
+                  ? 'Added 1 question on "$topic" to your feed'
+                  : 'Added ${questions.length} questions on "$topic" to your feed',
+            ),
+            action: SnackBarAction(
+              label: 'Practise',
+              onPressed: () {
+                ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
+                navigator.popUntil((route) => route.isFirst);
+              },
+            ),
           ),
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Couldn\'t add to your feed: $e')),
         );
-      }
+    } catch (e) {
+      if (mounted) showAppSnack(context, friendlyError(e), onRetry: _addToFeed);
     } finally {
       if (mounted) setState(() => _addingToFeed = false);
     }
@@ -176,7 +183,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
             children: [
               Icon(Icons.lightbulb_outline_rounded, color: p.accentText, size: 20),
               const SizedBox(width: 8),
-              Text('Key Concepts', style: textTheme.titleSmall!.copyWith(color: p.accentText)),
+              Text('Key concepts', style: textTheme.titleSmall!.copyWith(color: p.accentText)),
             ],
           ),
         ),
@@ -209,7 +216,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
                 ],
               ),
             ),
-          ).animate().fadeIn(duration: 200.ms);
+          );
         }),
       ],
     );
@@ -223,7 +230,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
     final cards = widget.material.flashcards;
 
     if (cards.isEmpty) {
-      return Center(child: Text('No flashcards', style: textTheme.bodyMedium!.copyWith(color: p.textMuted)));
+      return Center(child: Text('No cards in this set', style: textTheme.bodyMedium!.copyWith(color: p.textMuted)));
     }
 
     return Column(
@@ -255,13 +262,13 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
                     ? _flashcardFace(
                         key: const ValueKey('back'),
                         text: cards[_currentFlashcard]['back'] as String? ?? '',
-                        label: 'Definition',
+                        label: 'Answer',
                         isBack: true,
                       )
                     : _flashcardFace(
                         key: const ValueKey('front'),
                         text: cards[_currentFlashcard]['front'] as String? ?? '',
-                        label: 'Concept',
+                        label: 'Question',
                         isBack: false,
                       ),
               ),
@@ -274,7 +281,8 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
             children: [
               Expanded(
                 child: AppButton.secondary(
-                  label: '← Prev',
+                  label: 'Previous',
+                  icon: Icons.arrow_back_rounded,
                   onPressed: _currentFlashcard > 0
                       ? () => setState(() { _currentFlashcard--; _isFlipped = false; })
                       : null,
@@ -283,7 +291,8 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: AppButton(
-                  label: 'Next →',
+                  label: 'Next',
+                  icon: Icons.arrow_forward_rounded,
                   onPressed: _currentFlashcard < cards.length - 1
                       ? () => setState(() { _currentFlashcard++; _isFlipped = false; })
                       : null,
@@ -332,7 +341,7 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
                 const SizedBox(height: 24),
                 Text(
                   text,
-                  style: textTheme.titleMedium!.copyWith(fontSize: 18, height: 1.5),
+                  style: textTheme.titleLarge!.copyWith(height: 1.5),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),
@@ -345,12 +354,12 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
     );
   }
 
-  // ── PRACTICE QUIZ TAB ────────────────────────────────────────────────────
+  // ── PRACTICE TAB ────────────────────────────────────────────────────
 
   Widget _buildPracticeTab() {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
-    final quiz = widget.material.quiz;
+    final quiz = _questions;
 
     if (quiz.isEmpty) {
       return Center(child: Text('No practice questions', style: textTheme.bodyMedium!.copyWith(color: p.textMuted)));
@@ -393,8 +402,8 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
           final qi = entry.key;
           final q = entry.value;
           final selected = _quizAnswers[qi];
-          final correctAnswer = q['correctAnswer'] as int? ?? 0;
-          final options = (q['options'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+          final correctAnswer = q['correctAnswer'] as int;
+          final options = q['options'] as List<String>;
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 20),
@@ -458,17 +467,17 @@ class _StudyMaterialScreenState extends ConsumerState<StudyMaterialScreen>
                 }),
               ],
             ),
-          ).animate().fadeIn(duration: 200.ms);
+          );
         }),
         const SizedBox(height: 8),
         if (!_quizSubmitted)
           AppButton(
-            label: 'Submit Answers',
+            label: 'Submit answers',
             onPressed: () => setState(() => _quizSubmitted = true),
           )
         else
           AppButton.secondary(
-            label: 'Try Again',
+            label: 'Try again',
             onPressed: () => setState(() {
               _quizAnswers = List.filled(quiz.length, null);
               _quizSubmitted = false;

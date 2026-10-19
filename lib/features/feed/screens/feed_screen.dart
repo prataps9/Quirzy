@@ -54,6 +54,7 @@ typedef _FeedView = ({
   bool showHints,
   bool focusMode,
   bool allTopicsHidden,
+  bool failed,
 });
 
 _FeedView _viewOf(FeedState s) => (
@@ -66,6 +67,7 @@ _FeedView _viewOf(FeedState s) => (
   showHints: s.showHints,
   focusMode: s.focusMode,
   allTopicsHidden: s.allTopicsHidden,
+  failed: s.error != null,
 );
 
 class _FeedScreenState extends ConsumerState<FeedScreen> {
@@ -547,6 +549,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   }
 
   Widget _buildEmptyState(_FeedView view) {
+    if (view.failed) {
+      return _EmptyMessage(
+        icon: Icons.cloud_off_rounded,
+        title: "Couldn't load your feed",
+        body: 'Something went wrong while loading your questions. Try again in a moment.',
+        actionLabel: 'Try again',
+        onAction: _controller.retry,
+      );
+    }
     if (view.allTopicsHidden) {
       return _EmptyMessage(
         icon: Icons.visibility_off_rounded,

@@ -267,18 +267,18 @@ class AuthService {
     return user;
   }
 
-  // Get Current User (wraps sync for safety)
+  /// The signed-in user, or null when there is no session. Network and
+  /// server errors are rethrown — "offline" must not look like "signed out".
   Future<User?> getCurrentUser() async {
     try {
-      // Verify session exists first
       await _account.get();
       debugPrint('AuthService: Session verified');
-      // Then sync/get full user
-      return await syncGoogleUser();
-    } catch (e) {
-      debugPrint('AuthService: getCurrentUser error: $e');
-      return null;
+    } on AppwriteException catch (e) {
+      // 401: no session (or a guest) — genuinely signed out.
+      if (e.code == 401) return null;
+      rethrow;
     }
+    return syncGoogleUser();
   }
 
   // Is Logged In

@@ -81,21 +81,19 @@ class StudyMaterialService {
     );
   }
 
+  /// The user's recent study sets. Throws on failure so the screen can show
+  /// an error with Retry rather than a misleading empty list.
   Future<List<StudyMaterial>> getStudyHistory() async {
-    try {
-      final user = await _account.get();
-      final result = await _db.listDocuments(
-        databaseId: AppwriteConfig.databaseId,
-        collectionId: AppwriteConfig.studyMaterialsCollection,
-        queries: [
-          Query.equal('userId', user.$id),
-          Query.orderDesc('createdAt'),
-          Query.limit(20),
-        ],
-      );
-      return result.documents.map((d) => StudyMaterial.fromMap(d.data)).toList();
-    } catch (e) {
-      return [];
-    }
+    final user = await _account.get();
+    final result = await _db.listDocuments(
+      databaseId: AppwriteConfig.databaseId,
+      collectionId: AppwriteConfig.studyMaterialsCollection,
+      queries: [
+        Query.equal('userId', user.$id),
+        Query.orderDesc('createdAt'),
+        Query.limit(20),
+      ],
+    );
+    return result.documents.map((d) => StudyMaterial.fromMap(d.data)).toList();
   }
 }

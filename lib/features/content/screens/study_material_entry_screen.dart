@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/content_providers.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/generation_loading.dart';
+import '../services/study_material_service.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
 import 'study_material_screen.dart';
@@ -18,7 +21,6 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
   final _topicCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
   bool _showNotes = false;
-  bool _isGenerating = false;
 
   @override
   void dispose() {
@@ -30,54 +32,73 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
   Future<void> _generate() async {
     final topic = _topicCtrl.text.trim();
     if (topic.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a topic')),
-      );
+      showAppSnack(context, 'Enter a topic to build a study set.');
       return;
     }
+    FocusScope.of(context).unfocus();
 
     final usage = ref.read(usageLimitsProvider.notifier);
     if (!await usage.canUse(UsageKind.studySet)) {
       if (mounted) showLimitSheet(context, UsageKind.studySet);
       return;
     }
+    if (!mounted) return;
 
-    setState(() => _isGenerating = true);
-
+    final notes = _showNotes && _notesCtrl.text.trim().isNotEmpty ? _notesCtrl.text.trim() : null;
     try {
-      final service = ref.read(studyMaterialServiceProvider);
-      final material = await service.generateStudyMaterial(
-        topic: topic,
-        studyNotes: _showNotes && _notesCtrl.text.trim().isNotEmpty ? _notesCtrl.text.trim() : null,
+      final material = await runWithLoadingScreen<StudyMaterial>(
+        context,
+        title: 'Building your study set…',
+        subtitle: 'A summary, cards and practice questions on $topic.',
+        task: () async {
+          final material = await ref.read(studyMaterialServiceProvider).generateStudyMaterial(
+                topic: topic,
+                studyNotes: notes,
+              );
+          if (material.summary.isEmpty && material.flashcards.isEmpty && material.quiz.isEmpty) {
+            throw const UserFacingException('Nothing came back — try a broader topic.');
+          }
+          await usage.record(UsageKind.studySet);
+          return material;
+        },
       );
-      await usage.record(UsageKind.studySet);
       // The new set is saved server-side; refetch so it shows under Recent.
       ref.invalidate(studyMaterialHistoryProvider);
 
-      if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => StudyMaterialScreen(material: material)),
-        );
-      }
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => StudyMaterialScreen(material: material)),
+      );
     } catch (e) {
-      if (mounted) {
-        final p = context.palette;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.error_outline_rounded, color: p.danger),
-                const SizedBox(width: 12),
-                Expanded(child: Text('Failed to generate: $e')),
-              ],
+      if (!mounted || isCancellation(e)) return;
+      showAppSnack(context, friendlyError(e), onRetry: _generate);
+    }
+  }
+
+  Widget _buildHistoryError() {
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
+    return AppCard(
+      radius: AppRadius.control,
+      padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_rounded, color: p.textMuted, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              "Couldn't load your recent study sets.",
+              style: textTheme.bodyMedium!.copyWith(color: p.textMuted),
             ),
           ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isGenerating = false);
-    }
+          TextButton(
+            onPressed: () => ref.invalidate(studyMaterialHistoryProvider),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -89,7 +110,7 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
     final isPro = ref.watch(proStatusProvider).isPro;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Study Set Generator')),
+      appBar: AppBar(title: const Text('Study set generator')),
       body: SafeArea(
         child: Column(
           children: [
@@ -110,8 +131,8 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('AI Study Set', style: textTheme.titleSmall),
-                                Text('Get Summary + Flashcards + Quiz', style: textTheme.bodySmall),
+                                Text('Study set', style: textTheme.titleSmall),
+                                Text('A summary, flashcards and practice questions', style: textTheme.bodySmall),
                               ],
                             ),
                           ),
@@ -124,9 +145,8 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                                 borderRadius: BorderRadius.circular(AppRadius.pill),
                               ),
                               child: Text(
-                                '${UsageKind.studySet.freePerDay} FREE/DAY',
+                                '${UsageKind.studySet.freePerDay} free a day',
                                 style: textTheme.labelSmall!.copyWith(
-                                  fontSize: 10,
                                   fontWeight: FontWeight.w800,
                                   color: p.onAccent,
                                 ),
@@ -143,6 +163,8 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                     const SizedBox(height: 8),
                     TextField(
                       controller: _topicCtrl,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _generate(),
                       decoration: InputDecoration(
                         hintText: 'e.g. "Newton\'s Laws of Motion", "Photosynthesis", "French Revolution"',
                         suffixIcon: Icon(Icons.search_rounded, color: p.textMuted),
@@ -173,14 +195,14 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                         maxLines: 8,
                         style: textTheme.bodyMedium,
                         decoration: const InputDecoration(
-                          hintText: 'Paste your notes here for more targeted content...',
+                          hintText: 'Paste your notes here for more targeted content…',
                         ),
                       ),
                     ],
                     const SizedBox(height: 24),
 
                     // Recent history
-                    Text('Recent Study Sets', style: textTheme.titleSmall),
+                    Text('Recent study sets', style: textTheme.titleSmall),
                     const SizedBox(height: 12),
                     historyAsync.when(
                       data: (history) {
@@ -204,7 +226,7 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                                   Icon(Icons.menu_book_outlined, color: p.accentText, size: 20),
                                   const SizedBox(width: 12),
                                   Expanded(
-                                    child: Text(m.topic, style: textTheme.titleSmall),
+                                    child: Text(m.topic, style: textTheme.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ),
                                   Icon(Icons.chevron_right, color: p.textMuted, size: 18),
                                 ],
@@ -214,7 +236,7 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                         );
                       },
                       loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (_, _) => const SizedBox(),
+                      error: (_, _) => _buildHistoryError(),
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -225,9 +247,8 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: AppButton(
-                label: 'Generate Study Set',
+                label: 'Generate study set',
                 icon: Icons.auto_awesome,
-                loading: _isGenerating,
                 onPressed: _generate,
               ),
             ),

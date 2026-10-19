@@ -240,6 +240,13 @@ class FeedController extends Notifier<FeedState> {
     }
   }
 
+  /// Loads the feed again after a failed start.
+  Future<void> retry() async {
+    state = state.copyWith(loading: true);
+    ref.invalidate(feedQuestionPoolProvider);
+    await _init();
+  }
+
   FeedLane _restoredLane(SharedPreferences prefs) {
     final typeName = prefs.getString('feed_last_lane_type');
     final type = FeedLaneType.values.firstWhere(

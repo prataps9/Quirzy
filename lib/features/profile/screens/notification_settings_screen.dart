@@ -5,6 +5,7 @@ import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/services/notification_scheduler.dart';
 import '../../../shared/services/smart_notification_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../progress/widgets/exam_date_card.dart';
 
@@ -20,6 +21,7 @@ class _NotificationSettingsScreenState
     extends ConsumerState<NotificationSettingsScreen> {
   final _svc = SmartNotificationService();
   bool _loading = true;
+  bool _loadFailed = false;
   Map<String, bool> _prefs = {};
   int _studyHour = 20;
   int _studyMinute = 0;
@@ -31,32 +33,68 @@ class _NotificationSettingsScreenState
   }
 
   Future<void> _load() async {
-    final prefs = await _svc.getChannelPrefs();
-    final (h, m) = await _svc.getStudyTime();
-    if (!mounted) return;
     setState(() {
-      _prefs = prefs;
-      _studyHour = h;
-      _studyMinute = m;
-      _loading = false;
+      _loading = true;
+      _loadFailed = false;
     });
+    try {
+      final prefs = await _svc.getChannelPrefs();
+      final (h, m) = await _svc.getStudyTime();
+      if (!mounted) return;
+      setState(() {
+        _prefs = prefs;
+        _studyHour = h;
+        _studyMinute = m;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadFailed = true;
+      });
+    }
   }
+
+  static const _permissionDeniedMessage =
+      'Allow notifications for Quirzy in your phone settings to get reminders.';
 
   Future<void> _toggle(String key, bool value) async {
     HapticFeedback.lightImpact();
+    final previous = _prefs[key] ?? false;
     setState(() => _prefs[key] = value);
-    await _svc.setChannelPref(key, value);
-    if (!value) return;
+    try {
+      if (value) {
+        // Turned on: ask for permission first. Without it the reminder
+        // can never fire, so leave the switch off and say why.
+        final granted = await _svc.requestPermission();
+        if (!granted) {
+          await _svc.setChannelPref(key, false);
+          if (!mounted) return;
+          setState(() => _prefs[key] = false);
+          showAppSnack(context, _permissionDeniedMessage);
+          return;
+        }
+      }
+      await _svc.setChannelPref(key, value);
+      if (!value) return;
 
-    // Turned on: ask for permission if needed and schedule it right away.
-    final scheduler = ref.read(notificationSchedulerProvider);
-    await _svc.requestPermission();
-    await scheduler.reschedule(key);
+      // Schedule it right away.
+      await ref.read(notificationSchedulerProvider).reschedule(key);
 
-    if (key == NotificationScheduler.examCountdown &&
-        ref.read(examDateProvider).value == null &&
-        mounted) {
-      await pickExamDate(context, ref);
+      if (key == NotificationScheduler.examCountdown &&
+          ref.read(examDateProvider).value == null &&
+          mounted) {
+        await pickExamDate(context, ref);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _prefs[key] = previous);
+      showAppSnack(
+        context,
+        "Couldn't update that reminder. Please try again.",
+        onRetry: () => _toggle(key, value),
+      );
     }
   }
 
@@ -72,16 +110,44 @@ class _NotificationSettingsScreenState
       _studyMinute = picked.minute;
       _prefs['notif_study_time'] = true;
     });
-    await _svc.setChannelPref('notif_study_time', true);
-    await _svc.scheduleStudyTimeReminder(
-        hour: picked.hour, minute: picked.minute);
+    try {
+      await _svc.setChannelPref('notif_study_time', true);
+      await _svc.scheduleStudyTimeReminder(
+          hour: picked.hour, minute: picked.minute);
+    } catch (e) {
+      if (!mounted) return;
+      showAppSnack(
+        context,
+        "Couldn't set your reminder time. Please try again.",
+        onRetry: _pickStudyTime,
+      );
+    }
   }
 
-  String _fmt(int h, int m) {
-    final suffix = h < 12 ? 'AM' : 'PM';
-    final hh = h == 0 ? 12 : (h > 12 ? h - 12 : h);
-    final mm = m.toString().padLeft(2, '0');
-    return '$hh:$mm $suffix';
+  Widget _buildLoadError() {
+    final t = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.xl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "Couldn't load your notification settings. Please try again.",
+              textAlign: TextAlign.center,
+              style: t.bodyMedium,
+            ),
+            const SizedBox(height: AppSpace.lg),
+            AppButton.secondary(
+              label: 'Retry',
+              icon: Icons.refresh_rounded,
+              expanded: false,
+              onPressed: _load,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -94,6 +160,8 @@ class _NotificationSettingsScreenState
       appBar: AppBar(title: const Text('Notifications')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
+          : _loadFailed
+          ? _buildLoadError()
           : ListView(
               padding: const EdgeInsets.all(20),
               children: [
@@ -106,18 +174,18 @@ class _NotificationSettingsScreenState
                   _channelTile(
                     icon: Icons.style_rounded,
                     iconColor: p.accentText,
-                    title: 'Revision Due Reminders',
+                    title: 'Revision due reminders',
                     subtitle:
                         'Tells you how many practice questions are due and estimated time',
                     prefKey: 'notif_srs',
                   ),
                 ]),
 
-                _section('Streak & Motivation', [
+                _section('Streak and motivation', [
                   _channelTile(
                     icon: Icons.local_fire_department_rounded,
                     iconColor: p.streak,
-                    title: 'Streak Protection',
+                    title: 'Streak protection',
                     subtitle:
                         'Alert at 9 PM if you haven\'t studied yet — saves your streak',
                     prefKey: 'notif_streak',
@@ -125,7 +193,7 @@ class _NotificationSettingsScreenState
                   _channelTile(
                     icon: Icons.calendar_today_rounded,
                     iconColor: p.success,
-                    title: 'Exam Countdown',
+                    title: 'Exam countdown',
                     subtitle: examDate == null
                         ? 'Weekly days-left reminder. Needs your exam date.'
                         : 'Sunday morning reminder of the days left to ${examDisplayName(ref.watch(examProvider))}',
@@ -136,12 +204,12 @@ class _NotificationSettingsScreenState
                     _examDatePrompt(),
                 ]),
 
-                _section('Progress & Insights', [
+                _section('Progress and insights', [
                   _channelTile(
                     icon: Icons.bar_chart_rounded,
                     iconColor: p.accentText,
-                    title: 'Weekly Digest',
-                    subtitle: 'Sunday morning: questions practiced, streak',
+                    title: 'Weekly digest',
+                    subtitle: 'Sunday morning: questions practised and your streak',
                     prefKey: 'notif_weekly_digest',
                   ),
                   _channelTile(
@@ -153,11 +221,11 @@ class _NotificationSettingsScreenState
                   ),
                 ]),
 
-                _section('Study Time Reminder', [
+                _section('Study time reminder', [
                   _channelTile(
                     icon: Icons.alarm_rounded,
                     iconColor: p.like,
-                    title: 'Daily Study Alarm',
+                    title: 'Daily study alarm',
                     subtitle: 'Fires every day at your chosen time',
                     prefKey: 'notif_study_time',
                   ),
@@ -223,8 +291,7 @@ class _NotificationSettingsScreenState
         const SizedBox(height: 20),
         Text(
           title,
-          style: t.labelMedium!.copyWith(
-            fontSize: 13,
+          style: t.labelLarge!.copyWith(
             color: p.textMuted,
             letterSpacing: 0.5,
           ),
@@ -328,7 +395,7 @@ class _NotificationSettingsScreenState
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Reminder at ${_fmt(_studyHour, _studyMinute)}',
+                'Reminder at ${TimeOfDay(hour: _studyHour, minute: _studyMinute).format(context)}',
                 style: t.titleSmall,
               ),
             ),

@@ -77,7 +77,7 @@ class ShareCard extends StatelessWidget {
           ),
           const Spacer(),
           Text(
-            'Practice a little every day →',
+            'Practise a little every day',
             style: text.bodySmall!.copyWith(color: p.textMuted),
           ),
         ],

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../services/payment_service.dart';
 import '../services/usage_limits.dart';
@@ -117,34 +118,31 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   }
 
   void _onPaymentError(PaymentFailureResponse response) {
+    if (!mounted) return;
     setState(() => _isProcessing = false);
-    HapticFeedback.heavyImpact();
 
-    final p = context.palette;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline_rounded, color: p.danger, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(response.message ?? 'Payment failed. Please try again.'),
-            ),
-          ],
-        ),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        duration: const Duration(seconds: 4),
-      ),
+    // Closing the checkout (Razorpay code 2) is the user's choice, not an
+    // error, so it gets no message. Never show Razorpay's raw text.
+    final cancelled = response.code == Razorpay.PAYMENT_CANCELLED ||
+        (response.message ?? '').toLowerCase().contains('cancel');
+    if (cancelled) return;
+
+    HapticFeedback.heavyImpact();
+    showAppSnack(
+      context,
+      "Payment didn't go through. You haven't been charged — try again.",
+      onRetry: _startPayment,
     );
   }
 
   void _onExternalWallet(ExternalWalletResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Processing via ${response.walletName}...'),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      ),
+    if (!mounted) return;
+    final wallet = response.walletName;
+    showAppSnack(
+      context,
+      wallet == null || wallet.isEmpty
+          ? 'Finishing your payment in your wallet app…'
+          : 'Finishing your payment in $wallet…',
     );
   }
 
@@ -207,7 +205,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                         Text(
                           'PRO',
                           style: t.labelMedium!.copyWith(
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w800,
                             color: p.onAccent,
                             letterSpacing: 1.0,
                           ),
@@ -324,7 +322,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                     children: [
                       _buildPaymentMethodChip('UPI', Icons.account_balance_rounded),
                       _buildPaymentMethodChip('Cards', Icons.credit_card_rounded),
-                      _buildPaymentMethodChip('Net Banking', Icons.language_rounded),
+                      _buildPaymentMethodChip('Net banking', Icons.language_rounded),
                       _buildPaymentMethodChip(
                         'Wallet',
                         Icons.account_balance_wallet_rounded,

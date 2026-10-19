@@ -14,31 +14,68 @@ final authProvider = AsyncNotifierProvider<AuthNotifier, AuthUser?>(
 class AuthNotifier extends AsyncNotifier<AuthUser?> {
   static const _storage = FlutterSecureStorage();
 
+  /// How long app start waits for the server before trusting the cache.
+  static const _sessionCheckTimeout = Duration(seconds: 8);
+
   @override
-  Future<AuthUser?> build() async {
-    // Check for existing session on app start
-    final user = await ref.read(getCurrentUserUseCaseProvider).call();
-    if (user != null) {
-      // Other screens read the name/photo from secure storage; keep it fresh.
-      try {
-        await _saveUserToStorage(user);
-      } catch (e) {
-        debugPrint('AuthProvider: Could not cache user: $e');
+  Future<AuthUser?> build() => _loadUser();
+
+  /// Asks the server who is signed in. If the server can't be reached
+  /// (offline, slow), keeps a previously signed-in user signed in from the
+  /// copy saved on this device instead of bouncing them to Welcome.
+  Future<AuthUser?> _loadUser() async {
+    try {
+      final user = await ref.read(getCurrentUserUseCaseProvider).call().timeout(_sessionCheckTimeout);
+      if (user != null) {
+        // Other screens read the name/photo from secure storage; keep it fresh.
+        try {
+          await _saveUserToStorage(user);
+        } catch (e) {
+          debugPrint('AuthProvider: Could not cache user: $e');
+        }
       }
+      return user;
+    } catch (e) {
+      debugPrint('AuthProvider: Session check failed, using cached user: $e');
+      return cachedUser(_readStorage);
     }
-    return user;
   }
 
-  /// Google Sign In (Native flow - no deep links needed)
+  static Future<String?> _readStorage(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The user saved on this device at sign-in, or null if there is none.
+  @visibleForTesting
+  static Future<AuthUser?> cachedUser(Future<String?> Function(String key) read) async {
+    final id = await read('user_id');
+    if (id == null || id.isEmpty) return null;
+    return AuthUser(
+      id: id,
+      email: await read('user_email') ?? '',
+      name: await read('user_name') ?? '',
+      photoUrl: await read('user_photo_url'),
+    );
+  }
+
+  /// Google sign-in (native flow). Throws on failure — including when the
+  /// user closes the account picker — so the screen can respond; the auth
+  /// state goes back to signed out either way.
   Future<void> googleSignIn() async {
     state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      debugPrint('AuthProvider: Starting native Google Sign-In...');
+    try {
       final user = await ref.read(signInWithGoogleUseCaseProvider).call();
       debugPrint('AuthProvider: Google Sign-In successful');
       await _saveUserToStorage(user);
-      return user;
-    });
+      state = AsyncValue.data(user);
+    } catch (e) {
+      state = const AsyncValue.data(null);
+      rethrow;
+    }
   }
 
   /// Ends the Appwrite session and wipes everything stored on this device.
@@ -74,7 +111,7 @@ class AuthNotifier extends AsyncNotifier<AuthUser?> {
   Future<void> refresh() async {
     try {
       debugPrint('AuthProvider: Refreshing auth state...');
-      final user = await ref.read(getCurrentUserUseCaseProvider).call();
+      final user = await _loadUser();
       debugPrint('AuthProvider: Got user: ${user != null}');
       state = AsyncValue.data(user);
     } catch (e, st) {

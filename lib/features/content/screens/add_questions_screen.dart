@@ -6,6 +6,7 @@ import '../../feed/services/practice_content_service.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 
 class _QuestionData {
@@ -58,9 +59,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
 
   void _removeQuestion(int index) {
     if (_questions.length <= 3) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Minimum 3 questions required')),
-      );
+      showAppSnack(context, 'A topic needs at least 3 questions.');
       return;
     }
     setState(() {
@@ -72,19 +71,19 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) {
-      _showError('Please enter a topic title');
+      _showError('Give your topic a title.');
       return;
     }
 
     for (int i = 0; i < _questions.length; i++) {
       final q = _questions[i];
       if (q.questionCtrl.text.trim().isEmpty) {
-        _showError('Question ${i + 1} text is empty');
+        _showError('Question ${i + 1} needs some text.');
         return;
       }
       for (int j = 0; j < 4; j++) {
         if (q.optionCtrls[j].text.trim().isEmpty) {
-          _showError('Question ${i + 1}: Option ${String.fromCharCode(65 + j)} is empty');
+          _showError('Question ${i + 1}: option ${String.fromCharCode(65 + j)} is empty.');
           return;
         }
       }
@@ -92,7 +91,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
 
     final isOnline = await ref.read(connectivityServiceProvider).checkIsOnline();
     if (!isOnline) {
-      if (mounted) _showError('You\'re offline — connect to the internet to save this topic.');
+      if (mounted) _showError("You're offline. Connect to the internet to save this topic.");
       return;
     }
 
@@ -122,34 +121,24 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
       await ref.read(feedControllerProvider.notifier).switchToTopic(quizTitle);
 
       if (mounted) {
-        Navigator.pop(context);
         ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added ${questions.length} questions to your feed')),
+        showAppSnack(
+          context,
+          questions.length == 1
+              ? 'Added 1 question to your feed'
+              : 'Added ${questions.length} questions to your feed',
         );
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
-        _showError('Failed to save: $e');
+        showAppSnack(context, friendlyError(e), onRetry: _save);
       }
     }
   }
 
-  void _showError(String msg) {
-    final p = context.palette;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline_rounded, color: p.danger),
-            const SizedBox(width: 12),
-            Expanded(child: Text(msg)),
-          ],
-        ),
-      ),
-    );
-  }
+  void _showError(String msg) => showAppSnack(context, msg);
 
   OutlineInputBorder _fieldBorder(Color color, {double width = 1.5}) {
     return OutlineInputBorder(
@@ -163,7 +152,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Add Your Own Questions')),
+      appBar: AppBar(title: const Text('Add your own questions')),
       body: SafeArea(
         child: Column(
           children: [
@@ -172,7 +161,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
                 padding: const EdgeInsets.all(20),
                 children: [
                   // Title field
-                  Text('Topic Title', style: textTheme.titleSmall),
+                  Text('Topic title', style: textTheme.titleSmall),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _titleCtrl,
@@ -188,7 +177,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
                   // Add question button
                   const SizedBox(height: 8),
                   AppButton.secondary(
-                    label: 'Add Question',
+                    label: 'Add question',
                     icon: Icons.add_circle_outline,
                     onPressed: _addQuestion,
                   ),
@@ -201,7 +190,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: AppButton(
-                label: 'Add to Feed',
+                label: 'Add to my feed',
                 loading: _isSaving,
                 onPressed: _save,
               ),
@@ -237,7 +226,6 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
                     style: textTheme.labelMedium!.copyWith(
                       color: p.onAccent,
                       fontWeight: FontWeight.w800,
-                      fontSize: 13,
                     ),
                   ),
                 ),
@@ -246,10 +234,10 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
                 const Spacer(),
                 if (_questions.length > 3)
                   IconButton(
+                    tooltip: 'Remove question',
                     icon: Icon(Icons.delete_outline, color: p.danger, size: 20),
                     onPressed: () => _removeQuestion(index),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
+                    constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                   ),
               ],
             ),
@@ -259,7 +247,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
               maxLines: 2,
               style: textTheme.bodyMedium,
               decoration: InputDecoration(
-                hintText: 'Enter your question...',
+                hintText: 'Type your question',
                 fillColor: p.surfaceHigh,
                 border: _fieldBorder(p.border),
                 enabledBorder: _fieldBorder(p.border),
@@ -269,7 +257,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Options (tap radio to mark correct answer)',
+              'Options — tap the circle to tick the correct answer',
               style: textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -281,6 +269,7 @@ class _AddQuestionsScreenState extends ConsumerState<AddQuestionsScreen> {
                 child: Row(
                   children: [
                     IconButton(
+                      tooltip: isCorrect ? 'Correct answer' : 'Mark option $label as correct',
                       isSelected: isCorrect,
                       visualDensity: VisualDensity.compact,
                       icon: Icon(Icons.radio_button_unchecked_rounded, color: p.textMuted),

@@ -35,7 +35,28 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
       appBar: AppBar(title: const Text('My Prep')),
       body: statsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, st) => Center(child: Text('Could not load your progress.', style: text.bodyMedium)),
+        error: (err, st) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpace.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Couldn't load your progress. Check your connection and try again.",
+                  textAlign: TextAlign.center,
+                  style: text.bodyMedium,
+                ),
+                const SizedBox(height: AppSpace.lg),
+                AppButton.secondary(
+                  label: 'Retry',
+                  icon: Icons.refresh_rounded,
+                  expanded: false,
+                  onPressed: () => ref.invalidate(myPrepStatsProvider),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (stats) => RefreshIndicator(
           onRefresh: () async => ref.invalidate(myPrepStatsProvider),
           child: ListView(

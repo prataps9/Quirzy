@@ -5,11 +5,12 @@ import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/practice_content_service.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
-import '../../home/widgets/home_widgets.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/generation_loading.dart';
 
 class StudyNotesScreen extends ConsumerStatefulWidget {
   const StudyNotesScreen({super.key});
@@ -35,7 +36,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
   Future<void> _generate() async {
     final notes = _notesController.text.trim();
     if (notes.length < 100) {
-      _showError('Please enter at least 100 characters of notes (${notes.length}/100)');
+      showAppSnack(context, 'Add at least 100 characters of notes (${notes.length}/100).');
       return;
     }
 
@@ -47,67 +48,54 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
     }
 
     final isOnline = await ref.read(connectivityServiceProvider).checkIsOnline();
+    if (!mounted) return;
     if (!isOnline) {
-      if (mounted) {
-        _showError('You\'re offline — connect to the internet to generate questions.');
-      }
+      showAppSnack(context, "You're offline. Connect to the internet to generate questions.");
       return;
     }
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const QuizGenerationLoadingScreen()),
-    );
 
     try {
-      final service = ref.read(studyQuizServiceProvider);
-      final result = await service.generateQuizFromNotes(
-        studyNotes: notes,
-        questionCount: _questionCount,
-        difficulty: _difficulty,
-      );
-      await usage.record(UsageKind.topic);
-
-      final quizTitle = result['title']?.toString() ?? 'Study Notes';
-      final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
-
-      await ref.read(practiceContentServiceProvider).addToQuestionPool(
-            questions,
-            topicId: result['quizId']?.toString() ?? '',
-            topic: quizTitle,
+      final added = await runWithLoadingScreen<int>(
+        context,
+        title: 'Writing your questions…',
+        subtitle: 'Turning your notes into practice questions.',
+        task: () async {
+          final service = ref.read(studyQuizServiceProvider);
+          final result = await service.generateQuizFromNotes(
+            studyNotes: notes,
+            questionCount: _questionCount,
+            difficulty: _difficulty,
           );
-      await ref.read(feedControllerProvider.notifier).switchToTopic(quizTitle);
+          final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
+          if (questions.isEmpty) {
+            throw const UserFacingException(
+              'No questions came back — try adding more detail to your notes.',
+            );
+          }
+          await usage.record(UsageKind.topic);
 
-      if (mounted) {
-        Navigator.pop(context); // dismiss loading
-        Navigator.pop(context); // back out of this screen
-        ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added ${questions.length} questions to your feed')),
-        );
-      }
+          final title = result['title']?.toString() ?? 'Study notes';
+          await ref.read(practiceContentServiceProvider).addToQuestionPool(
+                questions,
+                topicId: result['quizId']?.toString() ?? '',
+                topic: title,
+              );
+          await ref.read(feedControllerProvider.notifier).switchToTopic(title);
+          return questions.length;
+        },
+      );
+
+      if (!mounted) return;
+      ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
+      showAppSnack(
+        context,
+        added == 1 ? 'Added 1 question to your feed' : 'Added $added questions to your feed',
+      );
+      Navigator.pop(context); // back out of this screen
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // dismiss loading
-        _showError('Failed to generate: $e');
-      }
+      if (!mounted || isCancellation(e)) return;
+      showAppSnack(context, friendlyError(e), onRetry: _generate);
     }
-  }
-
-  void _showError(String msg) {
-    final p = context.palette;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.error_outline_rounded, color: p.danger),
-            const SizedBox(width: 12),
-            Expanded(child: Text(msg)),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
@@ -119,7 +107,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
     final hasEnough = charCount >= 100;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Study Notes → Practice')),
+      appBar: AppBar(title: const Text('Practise from your notes')),
       body: SafeArea(
         child: Column(
           children: [
@@ -138,7 +126,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'Paste your study notes, lecture text, or any content — AI will turn it into practice questions for your feed.',
+                              'Paste your study notes or lecture text and we\'ll turn them into practice questions for your feed.',
                               style: textTheme.bodySmall,
                             ),
                           ),
@@ -148,14 +136,14 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
                     const SizedBox(height: 20),
 
                     // Notes input
-                    Text('Study Notes', style: textTheme.titleSmall),
+                    Text('Your notes', style: textTheme.titleSmall),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _notesController,
                       maxLines: 12,
                       style: textTheme.bodyMedium,
                       decoration: InputDecoration(
-                        hintText: 'Paste your notes here...\n\nExample: "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce oxygen and energy in the form of glucose..."',
+                        hintText: 'Paste your notes here…\n\nExample: "Photosynthesis is the process by which plants use sunlight, water, and carbon dioxide to produce oxygen and energy in the form of glucose…"',
                         enabledBorder: hasEnough
                             ? OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(AppRadius.control),
@@ -178,13 +166,13 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text('$charCount chars', style: textTheme.bodySmall),
+                        Text('$charCount characters', style: textTheme.bodySmall),
                       ],
                     ),
                     const SizedBox(height: 24),
 
                     // Question count selector
-                    Text('Number of Questions', style: textTheme.titleSmall),
+                    Text('Number of questions', style: textTheme.titleSmall),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -228,7 +216,7 @@ class _StudyNotesScreenState extends ConsumerState<StudyNotesScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
               child: AppButton(
-                label: 'Add to Feed ($_questionCount Qs)',
+                label: 'Add $_questionCount questions to my feed',
                 icon: Icons.auto_awesome,
                 onPressed: hasEnough ? _generate : null,
               ),

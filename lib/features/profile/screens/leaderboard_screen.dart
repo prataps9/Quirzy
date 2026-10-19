@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../shared/appwrite/leaderboard/leaderboard_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../feed/services/leaderboard_sync.dart';
 
@@ -23,6 +23,8 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   Map<String, dynamic> _userRank = {};
   String _userId = '';
   bool _isLoading = true;
+  bool _hasLoaded = false;
+  bool _loadFailed = false;
 
   @override
   void initState() {
@@ -31,7 +33,12 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   }
 
   Future<void> _loadLeaderboard() async {
-    setState(() => _isLoading = true);
+    // Only show the full-screen spinner on the first load; a refresh keeps
+    // the rows that are already on screen.
+    setState(() {
+      _isLoading = !_hasLoaded;
+      _loadFailed = false;
+    });
 
     try {
       // Push this device's latest XP first so the user sees themselves
@@ -50,11 +57,22 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
           _userId = userId;
           _userRank = Map<String, dynamic>.from(userRank);
           _isLoading = false;
+          _hasLoaded = true;
         });
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadFailed = true;
+      });
+      // Rows already on screen stay put; just say the refresh failed.
+      if (_topPlayers.isNotEmpty) {
+        showAppSnack(
+          context,
+          "Couldn't refresh the leaderboard. Check your connection and try again.",
+          onRetry: _loadLeaderboard,
+        );
       }
     }
   }
@@ -66,6 +84,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
         title: const Text('Leaderboard'),
         actions: [
           IconButton(
+            tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: _loadLeaderboard,
           ),
@@ -75,8 +94,39 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _loadLeaderboard,
-              child: _buildGlobalLeaderboard(),
+              child: _loadFailed && _topPlayers.isEmpty
+                  ? _buildErrorState()
+                  : _buildGlobalLeaderboard(),
             ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    final p = context.palette;
+    final t = Theme.of(context).textTheme;
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(32, 120, 32, 32),
+      children: [
+        Icon(Icons.cloud_off_rounded, size: 64, color: p.textMuted),
+        const SizedBox(height: 16),
+        Text("Couldn't load the leaderboard", style: t.titleLarge, textAlign: TextAlign.center),
+        const SizedBox(height: 8),
+        Text(
+          'Check your connection and try again.',
+          textAlign: TextAlign.center,
+          style: t.bodyMedium!.copyWith(color: p.textMuted),
+        ),
+        const SizedBox(height: 24),
+        Center(
+          child: AppButton.secondary(
+            label: 'Retry',
+            icon: Icons.refresh_rounded,
+            expanded: false,
+            onPressed: _loadLeaderboard,
+          ),
+        ),
+      ],
     );
   }
 
@@ -129,7 +179,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
           totalXP: (player['totalXP'] as num?)?.toInt() ?? 0,
           rank: player['rank'] as String? ?? 'Unranked',
           isCurrentUser: isMe,
-        ).animate().fadeIn(duration: 200.ms);
+        );
       },
     );
   }

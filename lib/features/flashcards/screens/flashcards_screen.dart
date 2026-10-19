@@ -1,16 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../l10n/app_localizations.dart';
-import '../../home/widgets/home_widgets.dart' show QuizGenerationLoadingScreen;
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
 import '../providers/flashcard_providers.dart';
 import '../widgets/flashcard_widgets.dart';
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/generation_loading.dart';
 import '../../onboarding/screens/screens.dart';
 import '../services/flashcard_cache.dart';
 import '../services/flashcard_prefs.dart';
@@ -40,6 +43,13 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
 
   List<Map<String, dynamic>> _flashcardSets = [];
   bool _isLoading = true;
+
+  /// Set when the last library load failed. Sets already shown are kept.
+  bool _loadFailed = false;
+
+  /// One due-count future per set id, so rebuilds don't refetch (and
+  /// flicker). Cleared whenever the counts may have changed.
+  final Map<String, Future<Map<String, int>>> _dueFutures = {};
   int _selectedTab = 0;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   String _userName = '';
@@ -82,18 +92,40 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       setState(() {
         _flashcardSets = sets;
         _isLoading = false;
+        _loadFailed = false;
+        _dueFutures.clear();
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      final hadSets = _flashcardSets.isNotEmpty;
+      setState(() {
+        _isLoading = false;
+        _loadFailed = true;
+      });
+      // With sets already on screen, keep them and just say the refresh
+      // failed; with none, the list shows an error state with Retry.
+      if (hadSets) {
+        _showSnackBar(
+          "Couldn't refresh your flashcards. Check your connection and try again.",
+          onRetry: _retryLoad,
+        );
+      }
     }
+  }
+
+  void _retryLoad() {
+    setState(() {
+      _isLoading = _flashcardSets.isEmpty;
+      _loadFailed = false;
+    });
+    _loadFlashcardSets();
   }
 
   Future<void> _generateFlashcards() async {
     final topic = _topicController.text.trim();
     if (topic.isEmpty) {
       HapticFeedback.heavyImpact();
-      _showSnackBar('Please enter a topic', isError: true);
+      _showSnackBar('Enter a topic to generate flashcards.');
       return;
     }
 
@@ -117,109 +149,109 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       return;
     }
 
+    final Map<String, dynamic> result;
+    try {
+      result = await runWithLoadingScreen<Map<String, dynamic>>(
+        context,
+        title: 'Making your flashcards…',
+        subtitle: 'Picking out the key ideas in $topic.',
+        task: () async {
+          final generated = await ref
+              .read(flashcardServiceProvider)
+              .generateFlashcards(topic: topic, cardCount: 10);
+          final cards = generated['cards'];
+          if (cards is! List || cards.isEmpty) {
+            throw const UserFacingException(
+              'No cards came back — try a broader topic.',
+            );
+          }
+          await ref
+              .read(usageLimitsProvider.notifier)
+              .record(UsageKind.flashcardSet);
+          return Map<String, dynamic>.from(generated);
+        },
+      );
+    } catch (e) {
+      if (!mounted || isCancellation(e)) return;
+      _showSnackBar(
+        friendlyError(e),
+        onRetry: () => _startFlashcardGeneration(topic, clearInput: clearInput),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    if (clearInput) _topicController.clear();
+    _loadFlashcardSets();
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const QuizGenerationLoadingScreen(
-          title: 'Creating Flashcards...',
-          subtitle: 'AI is distilling key concepts\ninto bite-sized cards.',
-        ),
-      ),
-    );
-
-    try {
-      final flashcardService = ref.read(flashcardServiceProvider);
-      final result = await flashcardService.generateFlashcards(
-        topic: topic,
-        cardCount: 10,
-      );
-
-      await ref.read(usageLimitsProvider.notifier).record(UsageKind.flashcardSet);
-      if (!mounted) return;
-
-      // Pop loading screen
-      Navigator.pop(context);
-
-      if (clearInput) _topicController.clear();
-      _loadFlashcardSets();
-      Navigator.push(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              FlashcardStudyScreen(
-                setId: result['id'],
-                title: result['title'] ?? topic,
-                cards: List<Map<String, dynamic>>.from(result['cards'] ?? []),
-              ),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position:
-                    Tween<Offset>(
-                      begin: const Offset(0.02, 0),
-                      end: Offset.zero,
-                    ).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            FlashcardStudyScreen(
+              setId: result['id'],
+              title: result['title'] ?? topic,
+              cards: List<Map<String, dynamic>>.from(result['cards'] ?? []),
+            ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(0.02, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutCubic,
                     ),
-                child: child,
-              ),
-            );
-          },
-          transitionDuration: const Duration(milliseconds: 300),
-        ),
-      ).then((_) => _loadFlashcardSets());
-    } catch (e) {
-      if (!mounted) return;
-      // Pop loading screen on error
-      Navigator.pop(context);
-      _showSnackBar(e.toString().replaceAll('Exception: ', ''), isError: true);
-    }
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    final p = context.palette;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          message,
-          style: isError ? TextStyle(color: p.danger) : null,
-        ),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+                  ),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
-    );
+    ).then((_) => _refreshDueBadges());
   }
 
-  void _openFlashcardSet(Map<String, dynamic> set) async {
+  void _showSnackBar(String message, {VoidCallback? onRetry}) {
+    if (!mounted) return;
+    showAppSnack(context, message, onRetry: onRetry);
+  }
+
+  Future<void> _openFlashcardSet(Map<String, dynamic> set) async {
     HapticFeedback.lightImpact();
     if (!mounted) return;
 
-    showDialog(
+    // A small loading dialog the user can tap away; it times out rather
+    // than spinning forever on a bad connection.
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final loadingRoute = DialogRoute<void>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
+    unawaited(navigator.push(loadingRoute));
 
     try {
       final flashcardService = ref.read(flashcardServiceProvider);
-      final fullSet = await flashcardService.getFlashcardSetById(set['id'] as String);
-      if (!mounted) return;
-      Navigator.pop(context);
+      final fullSet = await flashcardService
+          .getFlashcardSetById(set['id'] as String)
+          .timeout(const Duration(seconds: 20));
 
       final cards = List<Map<String, dynamic>>.from(fullSet['cards'] ?? []);
       final setId = fullSet['id'] as String;
       final title = fullSet['title'] as String;
 
       // Get SRS stats for this set
-      final srs = SrsService();
-      final stats = await srs.getSetStats(setId, cards.length);
+      final stats = await SrsService().getSetStats(setId, cards.length);
       final dueCount = stats['due'] ?? 0;
 
+      // The user tapped away while it loaded: they've moved on.
+      if (!loadingRoute.isActive) return;
+      navigator.removeRoute(loadingRoute);
       if (!mounted) return;
       _showStudyModeSheet(
         setId: setId,
@@ -228,8 +260,15 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
         dueCount: dueCount,
       );
     } catch (e) {
-      if (mounted) Navigator.pop(context);
-      _showSnackBar('Failed to load flashcards', isError: true);
+      final dismissed = !loadingRoute.isActive;
+      if (!dismissed) navigator.removeRoute(loadingRoute);
+      if (!mounted || dismissed) return;
+      _showSnackBar(
+        e is TimeoutException
+            ? 'That set is taking too long to open. Check your connection and try again.'
+            : friendlyError(e),
+        onRetry: () => _openFlashcardSet(set),
+      );
     }
   }
 
@@ -270,8 +309,10 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                 icon: Icons.style_rounded,
                 color: p.accentText,
                 softColor: p.accentSoft,
-                title: 'Study All',
-                subtitle: '${cards.length} cards — free review, no schedule',
+                title: 'Study all',
+                subtitle: cards.length == 1
+                    ? '1 card, in order — no schedule'
+                    : '${cards.length} cards, in order — no schedule',
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
@@ -293,10 +334,10 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                 icon: Icons.repeat_rounded,
                 color: p.success,
                 softColor: p.successSoft,
-                title: 'Spaced Review',
+                title: 'Spaced review',
                 subtitle: dueCount > 0
-                    ? '$dueCount card${dueCount != 1 ? 's' : ''} due today — SRS algorithm'
-                    : 'All caught up! No cards due today',
+                    ? '$dueCount card${dueCount != 1 ? 's' : ''} due today'
+                    : 'All caught up — no cards due today',
                 badge: dueCount > 0 ? '$dueCount due' : null,
                 onTap: dueCount > 0
                     ? () async {
@@ -326,9 +367,10 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
     );
   }
 
-  /// Due counts are read on build, so a rebuild picks up new SRS ratings.
+  /// Drops the cached due counts so the badges pick up new SRS ratings.
   void _refreshDueBadges() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(_dueFutures.clear);
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> set) async {
@@ -363,11 +405,18 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       await SrsService().removeSet(setId);
       await FlashcardCache.remove(setId);
       if (!mounted) return;
-      setState(() => _flashcardSets.removeWhere((s) => s['id'] == setId));
+      setState(() {
+        _flashcardSets.removeWhere((s) => s['id'] == setId);
+        _dueFutures.remove(setId);
+      });
       _showSnackBar('Set deleted');
       _loadFlashcardSets();
     } catch (e) {
-      _showSnackBar('Couldn\'t delete the set. Try again.', isError: true);
+      if (!mounted) return;
+      _showSnackBar(
+        "Couldn't delete the set. Please try again.",
+        onRetry: () => _confirmDelete(set),
+      );
     }
   }
 
@@ -463,50 +512,22 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   }
 
   Widget _buildTabBar() {
-    final p = context.palette;
-    final textTheme = Theme.of(context).textTheme;
-    final tabs = ['Recommended', 'My Library', 'Recent', 'Favourites'];
+    const tabs = ['Recommended', 'My Library', 'Recent', 'Favourites'];
 
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       child: Row(
         children: [
           for (var i = 0; i < tabs.length; i++) ...[
             if (i > 0) const SizedBox(width: AppSpace.sm),
-            Expanded(
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.lightImpact();
-                  setState(() => _selectedTab = i);
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpace.sm,
-                    vertical: AppSpace.md,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _selectedTab == i ? p.accent : p.surface,
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(
-                      color: _selectedTab == i ? p.accent : p.border,
-                    ),
-                  ),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      tabs[i],
-                      maxLines: 1,
-                      style: textTheme.labelLarge!.copyWith(
-                        fontWeight: _selectedTab == i
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                        color: _selectedTab == i ? p.onAccent : p.textMuted,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            ChoiceChip(
+              label: Text(tabs[i]),
+              selected: _selectedTab == i,
+              onSelected: (_) {
+                HapticFeedback.lightImpact();
+                setState(() => _selectedTab = i);
+              },
             ),
           ],
         ],
@@ -544,6 +565,13 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
             .toList();
       default:
         filteredSets = List.from(_flashcardSets);
+    }
+
+    if (filteredSets.isEmpty && _loadFailed) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildLoadError(),
+      );
     }
 
     if (filteredSets.isEmpty) {
@@ -704,7 +732,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
     final setId = set['id'] as String? ?? '';
-    final title = set['title'] ?? 'Untitled Set';
+    final title = set['title'] ?? 'Untitled set';
     final cardCount = set['cardCount'] ?? set['cards']?.length ?? 0;
 
     return Padding(
@@ -741,7 +769,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          '$cardCount Cards',
+                          cardCount == 1 ? '1 card' : '$cardCount cards',
                           style: textTheme.labelMedium!.copyWith(
                             color: p.accentText,
                           ),
@@ -834,13 +862,15 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   Widget _buildDueBadge(Map<String, dynamic> set) {
     final p = context.palette;
     final textTheme = Theme.of(context).textTheme;
+    final id = set['id'] as String?;
+    final count = (set['cardCount'] ?? 0) as int;
     return FutureBuilder<Map<String, int>>(
-      future: () async {
-        final id = set['id'] as String?;
-        final count = (set['cardCount'] ?? 0) as int;
-        if (id == null || count == 0) return <String, int>{};
-        return SrsService().getSetStats(id, count);
-      }(),
+      future: id == null || count == 0
+          ? null
+          : _dueFutures.putIfAbsent(
+              id,
+              () => SrsService().getSetStats(id, count),
+            ),
       builder: (context, snap) {
         final due = snap.data?['due'] ?? 0;
         if (due == 0) {
@@ -865,6 +895,35 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLoadError() {
+    final p = context.palette;
+    final textTheme = Theme.of(context).textTheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_rounded, size: 48, color: p.textMuted),
+            const SizedBox(height: AppSpace.lg),
+            Text(
+              "Couldn't load your flashcards. Check your connection and try again.",
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium!.copyWith(color: p.textMuted),
+            ),
+            const SizedBox(height: AppSpace.lg),
+            AppButton.secondary(
+              label: 'Retry',
+              icon: Icons.refresh_rounded,
+              expanded: false,
+              onPressed: _retryLoad,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -945,11 +1004,11 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  AppLocalizations.of(context)!.flashcardsTitle,
+                  AppLocalizations.of(context)!.navCards,
                   style: textTheme.titleLarge,
                 ),
                 Text(
-                  AppLocalizations.of(context)!.yourCollection,
+                  'Make a set, then review what\'s due',
                   style: textTheme.bodySmall,
                 ),
               ],
@@ -1015,8 +1074,11 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
             focusNode: _focusNode,
             maxLines: 2,
             minLines: 1,
+            keyboardType: TextInputType.text,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _generateFlashcards(),
             decoration: const InputDecoration(
-              hintText: "e.g., 'Photosynthesis' or paste your notes here...",
+              hintText: 'e.g. Photosynthesis or the French Revolution',
             ),
           ),
         ],
@@ -1028,7 +1090,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       child: AppButton(
-        label: 'Generate Flashcards',
+        label: 'Generate flashcards',
         icon: Icons.auto_awesome_rounded,
         onPressed: _generateFlashcards,
       ),
@@ -1043,13 +1105,10 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionHeader(title: 'Explore Categories'),
+          const SectionHeader(title: 'Explore categories'),
           Text(
-            'Tap to explore or generate flashcards',
-            style: textTheme.bodySmall!.copyWith(
-              fontSize: 13,
-              color: p.textMuted,
-            ),
+            'Tap a category to use it as your topic',
+            style: textTheme.bodySmall!.copyWith(color: p.textMuted),
           ),
           const SizedBox(height: AppSpace.md),
           Wrap(

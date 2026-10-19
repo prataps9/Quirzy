@@ -35,6 +35,9 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
   bool _showingAnswer = false;
   SrsCard? _lastRated;
 
+  /// Guards against a double tap rating the same card twice.
+  bool _rating = false;
+
   late AnimationController _flipCtrl;
   late Animation<double> _flipAnim;
   late AnimationController _slideCtrl;
@@ -97,16 +100,25 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
   }
 
   Future<void> _rate(SrsRating rating) async {
+    if (_rating) return;
     HapticFeedback.lightImpact();
-    final updated = await _srs.rateCard(widget.setId, _currentCardIndex, rating);
-    setState(() => _lastRated = updated);
+    setState(() => _rating = true);
+    final cardIndex = _currentCardIndex;
+    try {
+      final updated = await _srs.rateCard(widget.setId, cardIndex, rating);
+      _lastRated = updated;
+    } catch (_) {
+      // Rating is best-effort; the review continues either way.
+    }
+    if (!mounted) return;
 
     if (rating == SrsRating.again) {
       // Re-insert near end of queue
-      _queue.add(_currentCardIndex);
+      _queue.add(cardIndex);
     }
 
     if (_queuePos >= _queue.length - 1) {
+      setState(() => _rating = false);
       _showSessionComplete();
       return;
     }
@@ -115,6 +127,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
       _queuePos++;
       _isFlipped = false;
       _showingAnswer = false;
+      _rating = false;
     });
     _flipCtrl.reset();
     _slideCtrl.reset();
@@ -145,7 +158,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
                   child: Icon(Icons.check_rounded, color: p.onAccent, size: 38),
                 ),
                 const SizedBox(height: 20),
-                Text('Session Complete!', style: textTheme.headlineSmall),
+                Text('Session complete', style: textTheme.headlineSmall),
                 const SizedBox(height: AppSpace.sm),
                 Text(
                   'You reviewed $done card${done != 1 ? 's' : ''}. Come back tomorrow to keep your streak.',
@@ -177,67 +190,57 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
     final progress = _queue.isEmpty ? 0.0 : _queuePos / _queue.length;
 
     return Scaffold(
-      body: SafeArea(
-        child: Column(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: IconButton(
+          tooltip: 'Close review',
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+        titleSpacing: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: p.surface,
-                        borderRadius: BorderRadius.circular(AppRadius.chip),
-                        border: Border.all(color: p.border),
-                      ),
-                      child: Icon(Icons.close_rounded, color: p.text, size: 20),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'SPACED REVIEW',
-                          style: textTheme.labelSmall!.copyWith(
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.5,
-                            color: p.accentText,
-                          ),
-                        ),
-                        Text(
-                          widget.title,
-                          style: textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Due count badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: p.accentSoft,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: Text(
-                      '$remaining left',
-                      style: textTheme.labelMedium!.copyWith(color: p.accentText),
-                    ),
-                  ),
-                ],
+            Text(
+              'SPACED REVIEW',
+              style: textTheme.labelSmall!.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.5,
+                color: p.accentText,
               ),
             ),
-
+            Text(
+              widget.title,
+              style: textTheme.titleMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+        actions: [
+          // Cards left in this session
+          Container(
+            margin: const EdgeInsets.only(right: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: p.accentSoft,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Text(
+              '$remaining left',
+              style: textTheme.labelMedium!.copyWith(color: p.accentText),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
             // Progress bar
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(AppRadius.pill),
                 child: LinearProgressIndicator(value: progress, minHeight: 6),
@@ -267,7 +270,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
                           child: isFrontVisible
                               ? _buildFace(
                                   text: _front,
-                                  label: 'CONCEPT',
+                                  label: 'QUESTION',
                                   color: p.accentText,
                                   softColor: p.accentSoft,
                                   hint: 'Tap to reveal answer',
@@ -301,7 +304,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
                   : Padding(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
                       child: AppButton(
-                        label: 'Show Answer',
+                        label: 'Show answer',
                         icon: Icons.visibility_rounded,
                         onPressed: _flip,
                       ),
@@ -386,7 +389,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
             padding: const EdgeInsets.only(bottom: 10),
             child: Text(
               'How well did you recall?',
-              style: textTheme.bodySmall!.copyWith(fontSize: 13),
+              style: textTheme.bodyMedium!.copyWith(color: p.textMuted),
             ),
           ),
           Row(
@@ -423,7 +426,7 @@ class _SrsReviewScreenState extends ConsumerState<SrsReviewScreen>
           side: BorderSide(color: color.withValues(alpha: 0.4)),
         ),
         child: InkWell(
-          onTap: () => _rate(rating),
+          onTap: _rating ? null : () => _rate(rating),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 14),
             child: Center(

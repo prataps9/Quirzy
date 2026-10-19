@@ -8,7 +8,7 @@ import '../services/srs_service.dart';
 
 /// FlashcardStudyScreen - goes through every card in a set. Each answer is
 /// also rated in the spaced-repetition schedule ("Got it" = good,
-/// "Still learning" = again).
+/// "Again" = again).
 class FlashcardStudyScreen extends ConsumerStatefulWidget {
   final String setId;
   final String title;
@@ -139,7 +139,7 @@ class _FlashcardStudyScreenState extends ConsumerState<FlashcardStudyScreen> {
                         ),
                         const SizedBox(height: AppSpace.md),
                         AppButton.secondary(
-                          label: 'Still learning',
+                          label: 'Again',
                           icon: Icons.close_rounded,
                           onPressed: _rating ? null : () => _nextCard(false),
                         ),
@@ -156,6 +156,7 @@ class _FlashcardStudyScreenState extends ConsumerState<FlashcardStudyScreen> {
   }
 
   Future<void> _nextCard(bool known) async {
+    if (_rating) return;
     setState(() => _rating = true);
     try {
       await _srs.rateCard(
@@ -191,7 +192,7 @@ class _FlashcardStudyScreenState extends ConsumerState<FlashcardStudyScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Session complete'),
-        content: Text('Got it: $_knownCount\nStill learning: $_unknownCount'),
+        content: Text('Got it: $_knownCount\nAgain: $_unknownCount'),
         actions: [
           TextButton(
             onPressed: () {
@@ -210,7 +211,7 @@ class _FlashcardStudyScreenState extends ConsumerState<FlashcardStudyScreen> {
                 _unknownCount = 0;
               });
             },
-            child: const Text('Study Again'),
+            child: const Text('Study again'),
           ),
         ],
       ),

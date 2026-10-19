@@ -4,14 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:showcaseview/showcaseview.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../routes/app_routes.dart';
 import '../providers/auth_provider.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/theme/app_palette.dart';
+import '../../shared/utils/user_messages.dart';
 import '../../shared/widgets/app_widgets.dart';
-import 'success_screen.dart';
 import '../../features/profile/screens/privacy_policy_screen.dart';
 import '../../features/l10n/app_localizations.dart';
 
@@ -25,7 +23,6 @@ class WelcomeScreen extends ConsumerStatefulWidget {
 class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   bool _isPrivacyPolicyAccepted = false;
   bool _isGoogleLoading = false;
-  bool _hasShowcaseBeenShown = false;
 
   final GlobalKey _checkboxKey = GlobalKey();
 
@@ -43,20 +40,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
   void _showConsentRequiredMessage() {
     HapticFeedback.lightImpact();
-    final p = context.palette;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.warning_rounded, color: p.danger),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text('Please accept the Privacy Policy and Terms to continue'),
-            ),
-          ],
-        ),
-      ),
-    );
+    showAppSnack(context, 'Please accept the Privacy Policy and Terms to continue');
   }
 
   void _triggerShowcase(BuildContext showcaseContext) {
@@ -77,25 +61,16 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
     try {
       await ref.read(authProvider.notifier).googleSignIn();
       if (!mounted) return;
-
-      if (ref.read(authProvider).value != null) {
-        ref.read(tabIndexProvider.notifier).state = 0;
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SuccessScreen(
-              onComplete: () => context.go(AppRoutes.home),
-              message: 'Signed In!',
-              subtitle: 'Welcome to Quirzy',
-            ),
-          ),
-        );
-      }
+      // The router sends a signed-in user home on its own.
+      ref.read(tabIndexProvider.notifier).state = 0;
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Google Sign-in failed: $e')),
+      // Closing the account picker is a choice, not an error.
+      if (isCancellation(e)) return;
+      showAppSnack(
+        context,
+        "Couldn't sign in with Google. Check your connection and try again.",
+        onRetry: () => _handleGoogleSignIn(showcaseContext),
       );
     } finally {
       if (mounted) setState(() => _isGoogleLoading = false);
@@ -121,17 +96,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
 
     return ShowCaseWidget(
       builder: (showcaseContext) {
-        if (!_hasShowcaseBeenShown && !_isPrivacyPolicyAccepted) {
-          _hasShowcaseBeenShown = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              if (mounted && showcaseContext.mounted) {
-                _triggerShowcase(showcaseContext);
-              }
-            });
-          });
-        }
-
         return Scaffold(
           backgroundColor: p.bg,
           body: SafeArea(

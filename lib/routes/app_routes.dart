@@ -1,7 +1,6 @@
 class AppRoutes {
   static const String initial = '/';
   static const String auth = '/auth';
-  static const String success = '/success';
   static const String home = '/home';
   static const String profile = '/profile';
   static const String flashcards = '/flashcards';

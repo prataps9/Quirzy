@@ -74,7 +74,22 @@ class LaneSwitcherSheet extends ConsumerWidget {
                 ),
                 error: (err, st) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text('Could not load lanes.', style: text.bodyMedium),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Couldn't load your lanes. Check your connection and try again.",
+                        style: text.bodyMedium!.copyWith(color: mutedText),
+                      ),
+                      const SizedBox(height: AppSpace.sm),
+                      TextButton.icon(
+                        onPressed: () => ref.invalidate(feedLanesProvider),
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
                 ),
                 data: (lanes) => ListView(
                   shrinkWrap: true,

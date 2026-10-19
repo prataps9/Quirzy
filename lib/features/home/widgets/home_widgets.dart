@@ -4,46 +4,6 @@ import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../l10n/app_localizations.dart';
 
-/// Shown while a topic is being generated.
-class QuizGenerationLoadingScreen extends StatelessWidget {
-  final String? title;
-  final String? subtitle;
-
-  const QuizGenerationLoadingScreen({super.key, this.title, this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final text = Theme.of(context).textTheme;
-
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(
-                width: 56,
-                height: 56,
-                child: CircularProgressIndicator(strokeWidth: 4),
-              ),
-              const SizedBox(height: 28),
-              Text(title ?? 'Generating...', textAlign: TextAlign.center, style: text.headlineSmall),
-              const SizedBox(height: 8),
-              Text(
-                subtitle ?? 'AI is crafting questions for you',
-                textAlign: TextAlign.center,
-                style: text.bodyMedium!.copyWith(color: p.textMuted),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Bottom sheet to pick how many questions and how hard before generating.
 class QuizConfigSheet extends StatefulWidget {
   final String topic;

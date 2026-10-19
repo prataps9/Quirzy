@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'app_routes.dart';
@@ -22,15 +22,13 @@ class AuthListenator extends ChangeNotifier {
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: AppRoutes.initial,
-    debugLogDiagnostics: true,
+    debugLogDiagnostics: kDebugMode,
     refreshListenable: AuthListenator(ref),
     redirect: (context, state) {
       final authState = ref.read(authProvider);
 
       final isLoggedIn = authState.value != null;
-      final isLoggingIn =
-          state.matchedLocation == AppRoutes.auth ||
-          state.matchedLocation == AppRoutes.success;
+      final isLoggingIn = state.matchedLocation == AppRoutes.auth;
 
       if (authState.isLoading) return null;
 
@@ -50,17 +48,6 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.auth,
         builder: (context, state) => const WelcomeScreen(),
-      ),
-      GoRoute(
-        path: AppRoutes.success,
-        builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return SuccessScreen(
-            onComplete: () => context.go(AppRoutes.home),
-            message: extra?['message'] ?? 'Success!',
-            subtitle: extra?['subtitle'],
-          );
-        },
       ),
       GoRoute(
         path: AppRoutes.home,

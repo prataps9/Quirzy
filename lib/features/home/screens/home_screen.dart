@@ -9,15 +9,15 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
-import '../../../shared/services/notification_scheduler.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/generation_loading.dart';
 import '../../content/providers/content_providers.dart';
 import '../../content/screens/add_questions_screen.dart';
 import '../../content/screens/study_material_entry_screen.dart';
 import '../../content/screens/study_notes_screen.dart';
 import '../../feed/providers/feed_providers.dart';
-import '../../feed/services/leaderboard_sync.dart';
 import '../../feed/services/practice_content_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../../onboarding/screens/exam_selection_screen.dart';
@@ -56,7 +56,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     super.initState();
     _loadUserData();
     _speech = stt.SpeechToText();
-    _onAppOpen();
+    // Home is built the first time its tab opens, which may be because the
+    // feed asked to "Generate more" of a topic: pick that draft up now.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _applyDraft(ref.read(homeTopicDraftProvider));
+    });
+  }
+
+  /// Fills the topic box with a topic another screen suggested.
+  void _applyDraft(String? draft) {
+    if (draft == null) return;
+    _topicController.text = draft;
+    _topicController.selection = TextSelection.collapsed(offset: draft.length);
+    ref.read(homeTopicDraftProvider.notifier).state = null;
   }
 
   @override
@@ -64,13 +76,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     _topicController.dispose();
     _inputFocusNode.dispose();
     super.dispose();
-  }
-
-  /// Reschedules every reminder from fresh data and pushes the latest
-  /// score to the leaderboard. Both are fire-and-forget and never throw.
-  Future<void> _onAppOpen() async {
-    unawaited(ref.read(leaderboardSyncProvider).syncNow());
-    await ref.read(notificationSchedulerProvider).onAppOpen();
   }
 
   Future<void> _loadUserData() async {
@@ -108,7 +113,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
 
     if (!available) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localizations.speechNotAvailable)));
+        showAppSnack(context, localizations.speechNotAvailable);
       }
       return;
     }
@@ -181,7 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     final topic = _topicController.text.trim();
     if (topic.isEmpty) {
       HapticFeedback.heavyImpact();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(localizations.pleaseEnterTopic)));
+      showAppSnack(context, localizations.pleaseEnterTopic);
       return;
     }
     // Check the daily allowance up front so nobody configures a topic
@@ -217,66 +222,58 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     }
 
     final isOnline = await ref.read(connectivityServiceProvider).checkIsOnline();
+    if (!mounted) return;
     if (!isOnline) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You\'re offline — connect to the internet to add a new topic.')),
-        );
-      }
+      showAppSnack(context, "You're offline — connect to the internet to add a new topic.");
       return;
     }
-    if (!mounted) return;
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => QuizGenerationLoadingScreen(
-          title: 'Building "$topic"...',
-          subtitle: 'AI is crafting practice questions for your feed',
-        ),
-      ),
-    );
 
     try {
-      final contentService = ref.read(contentServiceProvider);
-      final result = await contentService.generateTopicContent(
-        topic: topic,
-        questionCount: count,
-        difficulty: difficulty.toLowerCase(),
+      final added = await runWithLoadingScreen(
+        context,
+        title: 'Building "$topic"…',
+        subtitle: 'AI is writing practice questions for your feed',
+        task: () async {
+          final contentService = ref.read(contentServiceProvider);
+          final result = await contentService.generateTopicContent(
+            topic: topic,
+            questionCount: count,
+            difficulty: difficulty.toLowerCase(),
+          );
+          final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
+          if (questions.isEmpty) {
+            throw const UserFacingException('No questions came back — try a broader topic.');
+          }
+
+          // Only a successful generation counts against today's allowance.
+          await usage.record(UsageKind.topic);
+
+          final topicId = result['quizId']?.toString() ?? result['id']?.toString() ?? '';
+          final title = result['title']?.toString() ?? topic;
+
+          // Add the new questions straight to the practice feed's pool and
+          // jump there so they're immediately practicable.
+          await ref.read(practiceContentServiceProvider).addToQuestionPool(
+                questions,
+                topicId: topicId,
+                topic: title,
+              );
+          await ref.read(feedControllerProvider.notifier).switchToTopic(title);
+          return (count: questions.length, title: title);
+        },
       );
 
-      // Only a successful generation counts against today's allowance.
-      await usage.record(UsageKind.topic);
-
-      final quizId = result['quizId']?.toString() ?? result['id']?.toString() ?? '';
-
-      final quizTitle = result['title']?.toString() ?? topic;
-      final questions = List<Map<String, dynamic>>.from(result['questions'] ?? []);
-
-      // Add the new questions straight to the practice feed's pool and
-      // jump there so they're immediately practicable.
-      await ref.read(practiceContentServiceProvider).addToQuestionPool(
-            questions,
-            topicId: quizId,
-            topic: quizTitle,
-          );
-      await ref.read(feedControllerProvider.notifier).switchToTopic(quizTitle);
-
-      if (mounted) {
-        Navigator.pop(context); // Remove the loading screen
-        _topicController.clear();
-        ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added ${questions.length} questions on "$quizTitle" to your feed')),
-        );
-      }
+      if (!mounted) return;
+      _topicController.clear();
+      ref.read(tabIndexProvider.notifier).state = 0; // Practice tab
+      showAppSnack(context, 'Added ${added.count} questions on "${added.title}" to your feed');
     } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Dismiss loading screen on error
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${AppLocalizations.of(context)!.failedToGenerate}$e')),
-        );
-      }
+      if (!mounted) return;
+      showAppSnack(
+        context,
+        friendlyError(e),
+        onRetry: () => _startGeneration(topic, count, difficulty),
+      );
     }
   }
 
@@ -298,12 +295,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    ref.listen<String?>(homeTopicDraftProvider, (_, draft) {
-      if (draft == null) return;
-      _topicController.text = draft;
-      _topicController.selection = TextSelection.collapsed(offset: draft.length);
-      ref.read(homeTopicDraftProvider.notifier).state = null;
-    });
+    ref.listen<String?>(homeTopicDraftProvider, (_, draft) => _applyDraft(draft));
     final localizations = AppLocalizations.of(context)!;
     final text = Theme.of(context).textTheme;
     final p = context.palette;

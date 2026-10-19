@@ -78,22 +78,18 @@ class LeaderboardService {
   }
 
   /// Get top players
+  /// The top [limit] players by XP. Throws if the board can't be loaded,
+  /// so the screen can tell "no rankings yet" from "couldn't load".
   Future<List<Map<String, dynamic>>> getTopPlayers({int limit = 50}) async {
-    try {
-      final result = await _db.listDocuments(
-        databaseId: AppwriteConfig.databaseId,
-        collectionId: AppwriteConfig.leaderboardCollection,
-        queries: [
-          Query.orderDesc('totalXP'),
-          Query.limit(limit),
-        ],
-      );
-
-      return result.documents.map((doc) => doc.data).toList();
-    } catch (e) {
-      debugPrint('LeaderboardService: Get top players error: $e');
-      return [];
-    }
+    final result = await _db.listDocuments(
+      databaseId: AppwriteConfig.databaseId,
+      collectionId: AppwriteConfig.leaderboardCollection,
+      queries: [
+        Query.orderDesc('totalXP'),
+        Query.limit(limit),
+      ],
+    );
+    return result.documents.map((doc) => doc.data).toList();
   }
 
   /// Get user's rank
