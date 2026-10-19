@@ -1,4 +1,6 @@
 /// Domain layer exports
+library;
+
 export 'auth/entities/auth_user.dart';
 export 'auth/usecases/login_usecase.dart';
 export 'auth/usecases/signup_usecase.dart';

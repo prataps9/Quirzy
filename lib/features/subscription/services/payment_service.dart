@@ -90,7 +90,7 @@ class PaymentService {
   }
 
   void _handlePaymentSuccess(PaymentSuccessResponse response) async {
-    debugPrint('Payment Success: ${response.paymentId}');
+    debugPrint('Payment Success');
 
     await ProStatusStore().activate(
       _pendingPlan ?? ProPlan.monthly,

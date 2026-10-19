@@ -11,10 +11,6 @@ import '../features/home/screens/screens.dart';
 import '../features/content/screens/screens.dart';
 import '../features/flashcards/screens/screens.dart';
 import '../features/profile/screens/screens.dart';
-import '../features/content/screens/study_notes_screen.dart';
-import '../features/content/screens/add_questions_screen.dart';
-import '../features/content/screens/study_material_entry_screen.dart';
-import '../features/profile/screens/notification_settings_screen.dart';
 
 class AuthListenator extends ChangeNotifier {
   AuthListenator(this.ref) {

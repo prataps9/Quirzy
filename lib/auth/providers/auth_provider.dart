@@ -35,7 +35,7 @@ class AuthNotifier extends AsyncNotifier<AuthUser?> {
     state = await AsyncValue.guard(() async {
       debugPrint('AuthProvider: Starting native Google Sign-In...');
       final user = await ref.read(signInWithGoogleUseCaseProvider).call();
-      debugPrint('AuthProvider: Google Sign-In successful: ${user.email}');
+      debugPrint('AuthProvider: Google Sign-In successful');
       await _saveUserToStorage(user);
       return user;
     });
@@ -75,7 +75,7 @@ class AuthNotifier extends AsyncNotifier<AuthUser?> {
     try {
       debugPrint('AuthProvider: Refreshing auth state...');
       final user = await ref.read(getCurrentUserUseCaseProvider).call();
-      debugPrint('AuthProvider: Got user: ${user?.email ?? 'null'}');
+      debugPrint('AuthProvider: Got user: ${user != null}');
       state = AsyncValue.data(user);
     } catch (e, st) {
       debugPrint('AuthProvider: Refresh error: $e');

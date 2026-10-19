@@ -116,7 +116,7 @@ class AuthService {
         onTimeout: () => throw Exception('Google Sign-In timed out'),
       );
 
-      debugPrint('AuthService: Google Sign-In successful: ${googleUser.email}');
+      debugPrint('AuthService: Google Sign-In successful');
 
       final String email = googleUser.email;
       final String name = googleUser.displayName ?? email.split('@').first;
@@ -165,7 +165,7 @@ class AuthService {
               name: name,
             );
 
-            debugPrint('AuthService: Account created: ${user.email}');
+            debugPrint('AuthService: Account created');
 
             // 10. Login to the new account
             await _account.createEmailPasswordSession(
@@ -227,7 +227,7 @@ class AuthService {
   Future<User> syncGoogleUser() async {
     // 1. Get current account
     final user = await _account.get();
-    debugPrint('AuthService: syncGoogleUser - got account: ${user.email}');
+    debugPrint('AuthService: syncGoogleUser - got account');
 
     // 2. Try to sync with database, but don't fail if it doesn't work
     try {
@@ -271,8 +271,8 @@ class AuthService {
   Future<User?> getCurrentUser() async {
     try {
       // Verify session exists first
-      final account = await _account.get();
-      debugPrint('AuthService: Session verified for ${account.email}');
+      await _account.get();
+      debugPrint('AuthService: Session verified');
       // Then sync/get full user
       return await syncGoogleUser();
     } catch (e) {

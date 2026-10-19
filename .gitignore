@@ -184,3 +184,14 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 *.lnk
+
+# Signing material and keytool dumps — never commit these. Keep the upload
+# keystore outside the repo and point android/key.properties at it.
+*.jks
+*.keystore
+*.pem
+*.p12
+key.properties
+cert_info.txt
+current_upload_cert.txt
+*_info*.txt

@@ -32,7 +32,7 @@ class DeepLinkService {
     try {
       final initialUri = await _appLinks.getInitialLink();
       if (initialUri != null) {
-        debugPrint('DeepLink: Initial link received: $initialUri');
+        debugPrint('DeepLink: Initial link received (${initialUri.scheme})');
         await _handleDeepLink(initialUri);
       }
     } catch (e) {
@@ -42,7 +42,7 @@ class DeepLinkService {
     // Listen for incoming links while app is running
     _linkSubscription = _appLinks.uriLinkStream.listen(
       (Uri uri) async {
-        debugPrint('DeepLink: Incoming link: $uri');
+        debugPrint('DeepLink: Incoming link (${uri.scheme})');
         await _handleDeepLink(uri);
       },
       onError: (err) {
@@ -53,10 +53,8 @@ class DeepLinkService {
 
   /// Handle incoming deep links
   Future<void> _handleDeepLink(Uri uri) async {
-    debugPrint('DeepLink: Handling URI: $uri');
-    debugPrint('DeepLink: Scheme: ${uri.scheme}');
-    debugPrint('DeepLink: Host: ${uri.host}');
-    debugPrint('DeepLink: Path: ${uri.path}');
+    // Never log the full URI: OAuth callbacks carry user ids and secrets.
+    debugPrint('DeepLink: Handling ${uri.scheme}://${uri.host}');
 
     if (uri.scheme == 'quirzy' && uri.host == 'practice') {
       _openPractice();
