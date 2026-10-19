@@ -10,6 +10,8 @@ import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../../shared/services/share_service.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
+import '../../../shared/widgets/app_widgets.dart';
 import '../../progress/services/share_card_service.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
@@ -685,9 +687,14 @@ class _FeedHeader extends StatelessWidget {
             label: streak.current == 0
                 ? 'No streak yet. Answer a question to start one.'
                 : '${streak.current} day streak${streak.atRisk ? '. Practise today to keep it.' : ''}',
+            // Opaque padding makes the whole 48dp-tall area tappable, not just
+            // the 30dp chip.
             child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: onOpenMyPrep,
-              child: Container(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 9),
+                child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: streak.practisedToday ? p.streakSoft : p.surfaceHigh,
@@ -702,10 +709,21 @@ class _FeedHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              ),
             ),
           ),
-          const SizedBox(width: 6),
-          GestureDetector(onTap: onOpenMyPrep, child: _GoalRing(done: todayAnswered)),
+          const SizedBox(width: 2),
+          Semantics(
+            button: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onOpenMyPrep,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: _GoalRing(done: todayAnswered),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Lanes',
             onPressed: onOpenLanes,
@@ -785,7 +803,7 @@ class _GoalRing extends StatelessWidget {
             else
               Text(
                 '$done',
-                style: Theme.of(context).textTheme.labelSmall!.copyWith(fontSize: 10, fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.micro,
               ),
           ],
         ),
@@ -902,7 +920,7 @@ class _EndOfLane extends StatelessWidget {
             Icon(Icons.emoji_events_rounded, size: 56, color: p.accentText),
             const SizedBox(height: 18),
             Text(
-              forYou ? "You've practiced all $cardCount" : "You're all caught up",
+              forYou ? "You've practised all $cardCount ${cardCount == 1 ? 'question' : 'questions'}" : "You're all caught up",
               textAlign: TextAlign.center,
               style: text.titleLarge,
             ),
@@ -915,14 +933,14 @@ class _EndOfLane extends StatelessWidget {
               style: text.bodyMedium!.copyWith(color: p.textMuted),
             ),
             const SizedBox(height: 22),
-            FilledButton(
+            AppButton(
+              label: forYou ? 'Add a topic' : 'Continue in For You',
               onPressed: forYou ? onAddTopic : onForYou,
-              child: Text(forYou ? 'Add a topic' : 'Continue in For You'),
             ),
             const SizedBox(height: 10),
-            OutlinedButton(
+            AppButton.secondary(
+              label: forYou ? 'Go again' : 'Replay this lane',
               onPressed: forYou ? onGoAgain : onReplay,
-              child: Text(forYou ? 'Go again' : 'Replay this lane'),
             ),
             if (!forYou) TextButton(onPressed: onBrowse, child: const Text('Browse another lane')),
           ],
@@ -962,7 +980,7 @@ class _EmptyMessage extends StatelessWidget {
           const SizedBox(height: 10),
           Text(body, textAlign: TextAlign.center, style: text.bodyMedium!.copyWith(color: p.textMuted)),
           const SizedBox(height: 24),
-          FilledButton(onPressed: onAction, child: Text(actionLabel)),
+          AppButton(label: actionLabel, onPressed: onAction),
         ],
       ),
     );

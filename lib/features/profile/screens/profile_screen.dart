@@ -12,6 +12,7 @@ import '../../../shared/services/app_review_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_restart_scope.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/tab_header.dart';
 import '../../auth/providers/auth_provider.dart';
 import '../../feed/services/streak_service.dart';
 import '../../feed/services/xp_service.dart';
@@ -59,7 +60,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen>
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
-            Text('Profile', style: text.headlineMedium),
+            const TabHeader(title: 'Profile', padding: EdgeInsets.zero),
             const SizedBox(height: 20),
             _ProfileHeader(
               name: name.isEmpty ? 'You' : name,

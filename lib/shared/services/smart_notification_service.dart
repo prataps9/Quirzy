@@ -205,7 +205,7 @@ class SmartNotificationService {
     if (daysLeft <= 7) {
       body = '$examName is in $days. Focus on your weak topics.';
     } else if (daysLeft <= 30) {
-      body = '$days to $examName. Practice and review your weak topics.';
+      body = '$days to $examName. Practise and review your weak topics.';
     } else {
       body = '$days to $examName. Steady daily practice adds up.';
     }

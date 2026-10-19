@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/tab_header.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../profile/screens/leaderboard_screen.dart';
@@ -28,12 +30,25 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final statsAsync = ref.watch(myPrepStatsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My Prep')),
-      body: statsAsync.when(
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const TabHeader(title: 'My Prep', subtitle: 'Your streak, progress and exam countdown'),
+            Expanded(child: _buildBody(statsAsync)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(AsyncValue<MyPrepStats> statsAsync) {
+    final text = Theme.of(context).textTheme;
+    return statsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, st) => Center(
           child: Padding(
@@ -112,9 +127,16 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
               Text('Share your progress', style: text.titleMedium),
               const SizedBox(height: 12),
               Center(
-                child: RepaintBoundary(
-                  key: _shareCardKey,
-                  child: ShareCard(stats: stats),
+                // Shown at a comfortable preview size; the boundary inside
+                // still captures the full-size card for sharing.
+                child: SizedBox(
+                  height: 340,
+                  child: FittedBox(
+                    child: RepaintBoundary(
+                      key: _shareCardKey,
+                      child: ShareCard(stats: stats),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -126,8 +148,7 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -320,7 +341,7 @@ class _ActivityTrend extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(labels[i], style: text.bodySmall!.copyWith(fontSize: 10)),
+                          Text(labels[i], style: text.micro.copyWith(fontWeight: FontWeight.w500)),
                         ],
                       ),
                     ),
@@ -379,7 +400,7 @@ class _TopicBreakdown extends StatelessWidget {
                     Text(entry.key, style: text.labelMedium),
                     Text(
                       '${accuracy.round()}% · ${entry.value.attempts} tries',
-                      style: text.labelSmall!.copyWith(color: color, fontSize: 10),
+                      style: text.micro.copyWith(color: color),
                     ),
                   ],
                 ),

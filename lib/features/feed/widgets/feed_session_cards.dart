@@ -213,7 +213,14 @@ class _TopicChip extends StatelessWidget {
         children: [
           Icon(style.icon, size: 16, color: p.accentText),
           const SizedBox(width: 6),
-          Text(topic, style: Theme.of(context).textTheme.labelLarge),
+          Flexible(
+            child: Text(
+              topic,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+          ),
         ],
       ),
     );

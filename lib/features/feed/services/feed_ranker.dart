@@ -275,7 +275,7 @@ class FeedRanker {
   ) {
     if ((session.likes[topic] ?? 0) > 0) return 'Because you liked $topic';
     if (_needsPractice(snapshot.topicStats[topic])) {
-      return "Practice where you're weak";
+      return "Practise where you're weak";
     }
     return 'Suggested for you';
   }

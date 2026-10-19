@@ -330,7 +330,7 @@ void main() {
     final state = container.read(feedControllerProvider);
     expect(state.cards.length, greaterThan(firstBatch));
     expect(state.hasMore, isTrue);
-    expect(find.text("You've practiced all 30"), findsNothing);
+    expect(find.text("You've practised all 30 questions"), findsNothing);
     expect(tester.takeException(), isNull);
 
     await _tearDown(tester);
@@ -343,7 +343,7 @@ void main() {
       await _swipeUp(tester);
     }
 
-    expect(find.text("You've practiced all 3"), findsOneWidget);
+    expect(find.text("You've practised all 3 questions"), findsOneWidget);
     expect(find.text('Go again'), findsOneWidget);
     expect(tester.takeException(), isNull);
 

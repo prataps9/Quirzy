@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../l10n/app_localizations.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
@@ -13,6 +12,7 @@ import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/tab_header.dart';
 import '../../../shared/widgets/generation_loading.dart';
 import '../../onboarding/screens/screens.dart';
 import '../services/flashcard_cache.dart';
@@ -51,9 +51,6 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   /// flicker). Cleared whenever the counts may have changed.
   final Map<String, Future<Map<String, int>>> _dueFutures = {};
   int _selectedTab = 0;
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
-  String _userName = '';
-  String? _photoUrl;
 
   static const _suggestedTopics = [
     'Science',
@@ -69,19 +66,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   @override
   void initState() {
     super.initState();
-    _loadUserData();
     _loadFlashcardSets();
-  }
-
-  Future<void> _loadUserData() async {
-    final name = await _storage.read(key: 'user_name');
-    final photoUrl = await _storage.read(key: 'user_photo_url');
-    if (mounted) {
-      setState(() {
-        if (name != null) _userName = name;
-        _photoUrl = photoUrl;
-      });
-    }
   }
 
   Future<void> _loadFlashcardSets() async {
@@ -832,7 +817,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
                     const SizedBox(height: 8),
                     Text(
                       title,
-                      style: textTheme.titleMedium!.copyWith(fontSize: 18),
+                      style: textTheme.titleLarge,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -962,60 +947,10 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
     );
   }
 
-  Widget _buildInitial() {
-    final p = context.palette;
-    return Center(
-      child: Text(
-        _userName.isNotEmpty ? _userName[0].toUpperCase() : 'Q',
-        style: Theme.of(context).textTheme.titleLarge!.copyWith(
-          color: p.onAccent,
-        ),
-      ),
-    );
-  }
-
   Widget _buildAppBar() {
-    final p = context.palette;
-    final textTheme = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(shape: BoxShape.circle, color: p.accent),
-            child: _photoUrl != null
-                ? ClipOval(
-                    child: Image.network(
-                      _photoUrl!,
-                      width: 44,
-                      height: 44,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          _buildInitial(),
-                    ),
-                  )
-                : _buildInitial(),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppLocalizations.of(context)!.navCards,
-                  style: textTheme.titleLarge,
-                ),
-                Text(
-                  'Make a set, then review what\'s due',
-                  style: textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return TabHeader(
+      title: AppLocalizations.of(context)!.navCards,
+      subtitle: "Make a set, then review what's due",
     );
   }
 

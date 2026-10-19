@@ -204,7 +204,7 @@ void main() {
         .nextBatch(snapshot, RankerSession())
         .picks
         .map((p) => p.reason);
-    expect(reasons, contains("Practice where you're weak"));
+    expect(reasons, contains("Practise where you're weak"));
   });
 
   test('released cards become candidates again', () {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../providers/progress_providers.dart';
 
 /// A vertical, Instagram-Story-proportioned card summarizing progress,
@@ -41,7 +42,7 @@ class ShareCard extends StatelessWidget {
             children: [
               Text(
                 '${stats.streak}',
-                style: text.displayLarge!.copyWith(color: p.accent, fontSize: 88, height: 1),
+                style: text.shareHero.copyWith(color: p.accent),
               ),
               const SizedBox(width: 8),
               Padding(

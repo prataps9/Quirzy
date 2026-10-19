@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 
 /// One answer choice. Before an answer it is a quiet outlined row; once
 /// revealed the right option turns green and a wrong pick turns red, each
@@ -82,8 +83,7 @@ class OptionCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   option,
-                  style: theme.textTheme.bodyLarge!.copyWith(
-                    fontSize: 15,
+                  style: theme.textTheme.option.copyWith(
                     fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),

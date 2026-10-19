@@ -57,6 +57,18 @@ void main() {
     expect(offenders(whiteOnAccent), isEmpty);
   });
 
+  test('text sizes come from the theme, not literals', () {
+    // Use a Material text role or a named role from app_text.dart.
+    expect(
+      offenders(RegExp(r'fontSize:'), allow: {'shared/theme/app_theme.dart', 'shared/theme/app_text.dart'}),
+      isEmpty,
+    );
+  });
+
+  test('only bundled font weights are used (runtime font fetching is off)', () {
+    expect(offenders(RegExp(r'FontWeight\.w(100|200|300|900)')), isEmpty);
+  });
+
   test('no deprecated withOpacity', () {
     expect(offenders(RegExp(r'\.withOpacity\(')), isEmpty);
   });

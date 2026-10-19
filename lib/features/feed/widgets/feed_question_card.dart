@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
 import '../models/topic_style.dart';
@@ -218,9 +219,9 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'double-tap to like · swipe left for solution · swipe right for lanes',
+                'Double-tap to like · swipe left for the solution · swipe right for lanes',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall!.copyWith(fontSize: 11),
+                style: Theme.of(context).textTheme.labelSmall!.copyWith(color: context.palette.textMuted),
               ),
             ),
           const SizedBox(height: 12),
@@ -354,44 +355,31 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
           explanation,
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium!.copyWith(fontSize: 13),
+          style: Theme.of(context).textTheme.caption,
         ),
       ),
     );
   }
 
   Widget _buildWrongReasons(AppPalette p) {
-    final label = Theme.of(context).textTheme.labelSmall!;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Wrap(
         spacing: 8,
-        runSpacing: 8,
+        runSpacing: 4,
         children: [
           for (final reason in kWrongAnswerReasons)
-            GestureDetector(
-              onTap: _selectedReason == null
-                  ? () {
+            ChoiceChip(
+              label: Text(reason),
+              selected: _selectedReason == reason,
+              showCheckmark: false,
+              onSelected: _selectedReason == null
+                  ? (_) {
+                      HapticFeedback.selectionClick();
                       setState(() => _selectedReason = reason);
                       widget.onWrongReason(reason);
                     }
                   : null,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _selectedReason == reason ? p.accentSoft : p.surfaceHigh,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(
-                    color: _selectedReason == reason ? p.accentText : Colors.transparent,
-                  ),
-                ),
-                child: Text(
-                  reason,
-                  style: label.copyWith(
-                    color: _selectedReason == reason ? p.accentText : p.textMuted,
-                  ),
-                ),
-              ),
             ),
         ],
       ),
@@ -458,7 +446,7 @@ class _Caption extends StatelessWidget {
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: text.bodyMedium!.copyWith(fontSize: 13),
+                      style: text.caption,
                     ),
                   ),
                 ],
@@ -540,7 +528,7 @@ class _QuestionBox extends StatelessWidget {
           child: Text(
             text,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium!.copyWith(fontSize: 19, height: 1.4),
+            style: Theme.of(context).textTheme.question,
           ),
         ),
         _Heart(show: showHeart),
@@ -664,7 +652,7 @@ class _ActionBar extends StatelessWidget {
             HapticFeedback.lightImpact();
             onSkip();
           },
-          child: Text(focusMode ? 'Skip ›' : 'Show answer', maxLines: 1, overflow: TextOverflow.ellipsis),
+          child: Text(focusMode ? 'Skip' : 'Show answer', maxLines: 1, overflow: TextOverflow.ellipsis),
         );
       }
       if (card.kind == FeedCardKind.fact) {

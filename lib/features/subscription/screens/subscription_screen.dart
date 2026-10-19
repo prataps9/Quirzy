@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../services/payment_service.dart';
@@ -519,9 +520,7 @@ class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
                 ),
                 child: Text(
                   saveText ?? 'BEST VALUE',
-                  style: t.labelSmall!.copyWith(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
+                  style: t.micro.copyWith(
                     color: p.onAccent,
                   ),
                 ),

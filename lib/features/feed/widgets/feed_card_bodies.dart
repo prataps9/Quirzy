@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
 
@@ -163,7 +164,7 @@ class FactBody extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
-        Text(q.questionText, textAlign: TextAlign.center, style: text.titleMedium!.copyWith(fontSize: 18, height: 1.4)),
+        Text(q.questionText, textAlign: TextAlign.center, style: text.question),
         const SizedBox(height: 14),
         _AnswerLine(answer: q.options[q.correctIndex]),
         const SizedBox(height: 12),
@@ -290,7 +291,7 @@ class FlashcardBody extends StatelessWidget {
           Text(
             flipped ? flashcard.back : flashcard.front,
             textAlign: TextAlign.center,
-            style: text.titleMedium!.copyWith(fontSize: 19, height: 1.4),
+            style: text.question,
           ),
           if (!flipped) ...[
             const SizedBox(height: 18),

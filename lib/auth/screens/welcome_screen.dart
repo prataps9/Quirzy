@@ -8,6 +8,7 @@ import 'package:showcaseview/showcaseview.dart';
 import '../providers/auth_provider.dart';
 import '../../shared/providers/providers.dart';
 import '../../shared/theme/app_palette.dart';
+import '../../shared/theme/app_text.dart';
 import '../../shared/utils/user_messages.dart';
 import '../../shared/widgets/app_widgets.dart';
 import '../../features/profile/screens/privacy_policy_screen.dart';
@@ -125,8 +126,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                           const SizedBox(height: 20),
                           Text(
                             'Quirzy',
-                            style: textTheme.displayLarge!.copyWith(
-                              fontSize: 44,
+                            style: textTheme.wordmark.copyWith(
                               color: p.text,
                             ),
                           ),
@@ -196,7 +196,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
       targetBorderRadius: BorderRadius.circular(AppRadius.control),
       tooltipBackgroundColor: p.surfaceHigh,
       textColor: p.text,
-      child: GestureDetector(
+      // Announced as a checkbox; the Privacy/Terms links inside stay tappable.
+      child: Semantics(
+        checked: accepted,
+        child: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
           setState(() => _isPrivacyPolicyAccepted = !_isPrivacyPolicyAccepted);
@@ -233,7 +236,6 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 child: RichText(
                   text: TextSpan(
                     style: textTheme.bodySmall!.copyWith(
-                      fontSize: 12.5,
                       color: p.textMuted,
                     ),
                     children: [
@@ -256,6 +258,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../shared/theme/app_palette.dart';
+import '../../../shared/theme/app_text.dart';
 import '../models/feed_models.dart';
 import '../models/topic_style.dart';
 
@@ -51,7 +52,7 @@ class QuestionShareCard extends StatelessWidget {
             question.questionText,
             maxLines: 7,
             overflow: TextOverflow.ellipsis,
-            style: text.titleLarge!.copyWith(color: p.text, fontSize: long ? 17 : 20, height: 1.35),
+            style: text.shareQuestion(long: long).copyWith(color: p.text),
           ),
           const SizedBox(height: 18),
           for (var i = 0; i < question.options.length && i < labels.length; i++)

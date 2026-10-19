@@ -324,7 +324,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('What do you want to practice?', style: text.headlineSmall),
+                  Text('What do you want to practise?', style: text.headlineSmall),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _topicController,
@@ -366,7 +366,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                       child: Row(
                         children: [
                           Expanded(
-                            child: Text('Quick practice for ${selectedExam.toUpperCase()}', style: text.titleMedium),
+                            child: Text('Quick practice for ${examDisplayName(selectedExam)}', style: text.titleMedium),
                           ),
                           TextButton(
                             onPressed: () => _push(const ExamSelectionScreen()),
@@ -505,17 +505,27 @@ class _HomeHeader extends StatelessWidget {
           ),
           if (showPro) ...[
             const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onProTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: p.accentText, width: 1.5),
-                ),
-                child: Text(
-                  'PRO',
-                  style: text.labelMedium!.copyWith(color: p.accentText, fontWeight: FontWeight.w800),
+            Semantics(
+              button: true,
+              label: 'Go Pro',
+              excludeSemantics: true,
+              // The opaque padding gives the small pill a full-size tap area.
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onProTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                      border: Border.all(color: p.accentText, width: 1.5),
+                    ),
+                    child: Text(
+                      'PRO',
+                      style: text.labelMedium!.copyWith(color: p.accentText, fontWeight: FontWeight.w800),
+                    ),
+                  ),
                 ),
               ),
             ),
