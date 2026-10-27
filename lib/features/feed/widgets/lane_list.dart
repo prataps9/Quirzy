@@ -25,9 +25,10 @@ IconData iconForLane(FeedLaneType type) {
 }
 
 /// The lanes as a plain list, with the Hidden topics section: the fallback
-/// view of the topic dial. [onPick] runs after the controller has switched.
+/// view of the topic dial. [onPick] is called with the lane the user chose;
+/// the caller does the switching.
 class LaneList extends ConsumerWidget {
-  final VoidCallback onPick;
+  final ValueChanged<FeedLane> onPick;
 
   const LaneList({super.key, required this.onPick});
 
@@ -72,11 +73,7 @@ class LaneList extends ConsumerWidget {
             _LaneTile(
               lane: lane,
               selected: lane.id == currentId,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                controller.switchLane(lane, restorePosition: true);
-                onPick();
-              },
+              onTap: () => onPick(lane),
               onToggleDownload: () async {
                 HapticFeedback.selectionClick();
                 await ref.read(practiceContentServiceProvider).setDownloaded(lane.label, !lane.downloaded);
@@ -91,10 +88,7 @@ class LaneList extends ConsumerWidget {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                 leading: Icon(Icons.visibility_off_rounded, color: mutedText),
                 title: Text(topic, style: text.titleSmall),
-                trailing: TextButton(
-                  onPressed: () => controller.unmuteTopic(topic),
-                  child: const Text('Unhide'),
-                ),
+                trailing: TextButton(onPressed: () => controller.unmuteTopic(topic), child: const Text('Unhide')),
               ),
           ],
         ],
@@ -115,11 +109,9 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
       child: Text(
         text.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall!.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.6,
-          color: color,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.labelSmall!.copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.6, color: color),
       ),
     );
   }
@@ -131,12 +123,7 @@ class _LaneTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleDownload;
 
-  const _LaneTile({
-    required this.lane,
-    required this.selected,
-    required this.onTap,
-    required this.onToggleDownload,
-  });
+  const _LaneTile({required this.lane, required this.selected, required this.onTap, required this.onToggleDownload});
 
   @override
   Widget build(BuildContext context) {
@@ -176,10 +163,7 @@ class _LaneTile extends StatelessWidget {
           onTap: onTap,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           tileColor: selected ? p.accentSoft : null,
-          leading: Icon(
-            iconForLane(lane.type),
-            color: selected ? p.accentText : muted,
-          ),
+          leading: Icon(iconForLane(lane.type), color: selected ? p.accentText : muted),
           title: Text(
             lane.label,
             style: text.titleSmall!.copyWith(

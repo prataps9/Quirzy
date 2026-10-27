@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
@@ -38,15 +40,18 @@ class TopicDial extends ConsumerStatefulWidget {
       barrierDismissible: true,
       barrierLabel: 'Close topics',
       barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 260),
+      transitionDuration: AppMotion.of(context, AppMotion.base),
       pageBuilder: (context, animation, secondary) => const TopicDial(),
-      transitionBuilder: (context, animation, secondary, child) => SlideTransition(
-        position: Tween(
-          begin: const Offset(-1, 0),
-          end: Offset.zero,
-        ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic)),
-        child: child,
-      ),
+      transitionBuilder: (context, animation, secondary, child) {
+        final curved = CurvedAnimation(parent: animation, curve: AppMotion.enter, reverseCurve: AppMotion.exit);
+        return FadeTransition(
+          opacity: Tween<double>(begin: 0.4, end: 1).animate(curved),
+          child: SlideTransition(
+            position: Tween(begin: const Offset(-1, 0), end: Offset.zero).animate(curved),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -55,12 +60,17 @@ class TopicDial extends ConsumerStatefulWidget {
 }
 
 class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProviderStateMixin {
+  static final _spring = SpringDescription.withDampingRatio(mass: 1, stiffness: 240, ratio: 0.9);
+
+  /// Which lane is in the middle, as a (fractional while moving) lane index.
+  /// Only the arc and its nodes listen to this, so turning the dial never
+  /// rebuilds the panel around it.
+  final ValueNotifier<double> _focus = ValueNotifier(0);
+
+  /// The whole lane index in the middle, for the detail card below.
+  final ValueNotifier<int> _focusIndex = ValueNotifier(0);
   late final AnimationController _settle;
 
-  double _focus = 0;
-  double _from = 0;
-  double _to = 0;
-  int _lastTick = 0;
   bool _positioned = false;
   bool _listMode = false;
   int _laneCount = 0;
@@ -68,41 +78,49 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _settle = AnimationController(vsync: this, duration: const Duration(milliseconds: 260))..addListener(_onSettleTick);
+    _settle = AnimationController.unbounded(vsync: this)..addListener(() => _setFocus(_settle.value));
   }
 
   @override
   void dispose() {
     _settle.dispose();
+    _focus.dispose();
+    _focusIndex.dispose();
     super.dispose();
   }
 
-  void _onSettleTick() {
-    final t = Curves.easeOutCubic.transform(_settle.value);
-    _setFocus(_from + (_to - _from) * t);
-  }
-
   void _setFocus(double value) {
+    _focus.value = value;
     final rounded = value.round();
-    if (rounded != _lastTick) {
-      _lastTick = rounded;
+    if (rounded != _focusIndex.value) {
+      _focusIndex.value = rounded;
       HapticFeedback.selectionClick();
     }
-    setState(() => _focus = value);
   }
 
-  void _animateTo(int index) {
-    _from = _focus;
-    _to = index.toDouble();
-    _settle.forward(from: 0);
+  /// Glides to lane [index], carrying the speed the finger let go at
+  /// ([velocity], in lanes per second).
+  void _animateTo(int index, {double velocity = 0}) {
+    if (AppMotion.reduced(context)) {
+      _setFocus(index.toDouble());
+      return;
+    }
+    _settle.value = _focus.value;
+    _settle.animateWith(SpringSimulation(_spring, _focus.value, index.toDouble(), velocity));
   }
 
   void _close() => Navigator.of(context).pop();
 
   void _open(FeedLane lane) {
     HapticFeedback.selectionClick();
-    ref.read(feedControllerProvider.notifier).switchLane(lane, restorePosition: true);
+    final controller = ref.read(feedControllerProvider.notifier);
     _close();
+    // Switch once the dial has mostly slid away, so the feed doesn't jump
+    // behind it while it is still closing.
+    Future<void>.delayed(
+      AppMotion.of(context, const Duration(milliseconds: 140)),
+      () => controller.switchLane(lane, restorePosition: true),
+    );
   }
 
   @override
@@ -120,8 +138,8 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
       if (!_positioned) {
         _positioned = true;
         final at = lanes.indexWhere((l) => l.id == currentId);
-        _focus = _from = _to = math.max(0, at).toDouble();
-        _lastTick = _focus.round();
+        _focus.value = math.max(0, at).toDouble();
+        _focusIndex.value = _focus.value.round();
       }
     });
 
@@ -155,22 +173,28 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                   ),
                 ),
                 Expanded(
-                  child: _listMode
-                      ? Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
-                          child: LaneList(onPick: _close),
-                        )
-                      : lanesAsync.when(
-                          loading: () => const Center(child: CircularProgressIndicator()),
-                          error: (e, st) => Center(
-                            child: TextButton.icon(
-                              onPressed: () => ref.invalidate(feedLanesProvider),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text("Couldn't load topics. Retry"),
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.of(context, AppMotion.base),
+                    child: KeyedSubtree(
+                      key: ValueKey(_listMode),
+                      child: _listMode
+                          ? Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+                              child: LaneList(onPick: _open),
+                            )
+                          : lanesAsync.when(
+                              loading: () => const Center(child: CircularProgressIndicator()),
+                              error: (e, st) => Center(
+                                child: TextButton.icon(
+                                  onPressed: () => ref.invalidate(feedLanesProvider),
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text("Couldn't load topics. Retry"),
+                                ),
+                              ),
+                              data: (lanes) => _buildDial(context, lanes, mastery, currentId),
                             ),
-                          ),
-                          data: (lanes) => _buildDial(context, lanes, mastery, currentId),
-                        ),
+                    ),
+                  ),
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
@@ -190,8 +214,6 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
 
   Widget _buildDial(BuildContext context, List<FeedLane> lanes, Map<String, TopicMastery> mastery, String currentId) {
     final p = context.palette;
-    final focusIndex = _focus.round().clamp(0, lanes.length - 1);
-    final focusLane = lanes[focusIndex];
     final challenge = ref.watch(dailyChallengeProvider).value;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -203,8 +225,16 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onVerticalDragStart: (_) => _settle.stop(),
-                onVerticalDragUpdate: (d) => _setFocus(layout.focusAfterDrag(_focus, d.delta.dy, _laneCount)),
-                onVerticalDragEnd: (d) => _animateTo(layout.settleIndex(_focus, d.primaryVelocity ?? 0, _laneCount)),
+                onVerticalDragUpdate: (d) => _setFocus(layout.focusAfterDrag(_focus.value, d.delta.dy, _laneCount)),
+                onVerticalDragEnd: (d) {
+                  final velocity = d.primaryVelocity ?? 0;
+                  _animateTo(
+                    layout.settleIndex(_focus.value, velocity, _laneCount),
+                    // Finger up = later lanes: px/s to lanes/s, eased down so
+                    // the glide doesn't overshoot the lane it picked.
+                    velocity: (-velocity / layout.pixelsPerStep * 0.5).clamp(-8.0, 8.0),
+                  );
+                },
                 child: Stack(
                   clipBehavior: Clip.hardEdge,
                   children: [
@@ -213,17 +243,30 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                         painter: _TrackPainter(layout: layout, color: p.border),
                       ),
                     ),
-                    for (final node in layout.nodes(lanes.length, _focus))
-                      _positionedNode(
-                        context,
-                        layout,
-                        node,
-                        lanes[node.index],
-                        mastery,
-                        currentId,
-                        node.index == focusIndex,
-                        challenge,
+                    Positioned.fill(
+                      child: ValueListenableBuilder<double>(
+                        valueListenable: _focus,
+                        builder: (context, focus, _) {
+                          final focusIndex = focus.round().clamp(0, lanes.length - 1);
+                          return Stack(
+                            clipBehavior: Clip.hardEdge,
+                            children: [
+                              for (final node in layout.nodes(lanes.length, focus))
+                                _positionedNode(
+                                  context,
+                                  layout,
+                                  node,
+                                  lanes[node.index],
+                                  mastery,
+                                  currentId,
+                                  node.index == focusIndex,
+                                  challenge,
+                                ),
+                            ],
+                          );
+                        },
                       ),
+                    ),
                   ],
                 ),
               );
@@ -232,11 +275,17 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: _FocusDetail(
-            lane: focusLane,
-            mastery: focusLane.type == FeedLaneType.topic ? mastery[focusLane.label] : null,
-            daily: challenge,
-            onOpen: () => _open(focusLane),
+          child: ValueListenableBuilder<int>(
+            valueListenable: _focusIndex,
+            builder: (context, index, _) {
+              final focusLane = lanes[index.clamp(0, lanes.length - 1)];
+              return _FocusDetail(
+                lane: focusLane,
+                mastery: focusLane.type == FeedLaneType.topic ? mastery[focusLane.label] : null,
+                daily: challenge,
+                onOpen: () => _open(focusLane),
+              );
+            },
           ),
         ),
       ],
@@ -287,13 +336,14 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    lane.label,
+                  child: AnimatedDefaultTextStyle(
+                    duration: AppMotion.of(context, AppMotion.fast),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: focused
-                        ? Theme.of(context).textTheme.titleSmall
+                        ? Theme.of(context).textTheme.titleSmall!
                         : Theme.of(context).textTheme.labelLarge!.copyWith(color: context.palette.textMuted),
+                    child: Text(lane.label),
                   ),
                 ),
               ],
@@ -351,7 +401,8 @@ class _NodeBubble extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.all(6),
-          child: DecoratedBox(
+          child: AnimatedContainer(
+            duration: AppMotion.of(context, AppMotion.fast),
             decoration: BoxDecoration(shape: BoxShape.circle, color: filled ? p.accent : p.surfaceHigh),
             child: Icon(
               level == MasteryLevel.mastered && !filled ? Icons.check_rounded : icon,

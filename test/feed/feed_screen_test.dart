@@ -441,6 +441,66 @@ void main() {
       await _tearDown(tester);
     });
 
+    testWidgets('turning the dial settles on a whole lane and shows its detail', (tester) async {
+      await pumpWithLanes(tester);
+      await tester.tap(find.byTooltip('Topics'));
+      await settle(tester);
+      expect(find.text('Adapts to what you like and skip'), findsOneWidget);
+
+      await tester.drag(find.byType(CustomPaint).first, const Offset(0, -70), warnIfMissed: false);
+      await settle(tester);
+      expect(find.text('20 questions'), findsOneWidget);
+      await _tearDown(tester);
+    });
+
+    testWidgets('picking a lane closes the dial first, then switches', (tester) async {
+      await pumpWithLanes(tester);
+      final container = ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+      await tester.tap(find.byTooltip('Topics'));
+      await settle(tester);
+
+      await tester.tap(inDial('Math'));
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(container.read(feedControllerProvider).lane.id, 'for_you', reason: 'not yet: the dial is still closing');
+      await settle(tester);
+      expect(container.read(feedControllerProvider).lane.id, 'topic:Math');
+      await _tearDown(tester);
+    });
+
+    testWidgets('the card springs back to rest after a swipe', (tester) async {
+      await _pumpFeed(tester, [for (var i = 0; i < 20; i++) _q('Math', i)]);
+      // Let the card finish easing in, so we measure where it really rests.
+      await tester.pump(const Duration(seconds: 1));
+      final rest = tester.getTopLeft(find.byType(OptionCard).first);
+
+      await tester.fling(find.text('Option C'), const Offset(-300, 0), 1500);
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      expect(tester.getTopLeft(find.byType(OptionCard).first), rest);
+      await _tearDown(tester);
+    });
+
+    testWidgets('the card keeps its state while it is dragged sideways', (tester) async {
+      await _pumpFeed(tester, [for (var i = 0; i < 20; i++) _q('Math', i)]);
+      final before = tester.state(find.byType(FeedQuestionCard).first);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(PageView)));
+      await gesture.moveBy(const Offset(60, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(identical(tester.state(find.byType(FeedQuestionCard).first), before), isTrue);
+
+      await gesture.up();
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(identical(tester.state(find.byType(FeedQuestionCard).first), before), isTrue);
+      await _tearDown(tester);
+    });
+
     testWidgets('the list view lists every lane', (tester) async {
       await pumpWithLanes(tester);
       await tester.tap(find.byTooltip('Topics'));

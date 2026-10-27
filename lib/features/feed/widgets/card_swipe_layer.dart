@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 
@@ -9,8 +11,11 @@ import '../../../shared/theme/app_text.dart';
 ///
 /// The card follows the finger a little and a hint appears on the edge the
 /// panel is coming from. The swipe opens once the drag passes [openFraction]
-/// of the width or flings faster than [flingVelocity]; otherwise the card
-/// springs back. Taps and vertical drags go to the children untouched.
+/// of the width or flings faster than [flingVelocity]; on release the card
+/// springs back carrying the speed of the flick, while the panel slides in.
+/// Taps and vertical drags go to the children untouched.
+///
+/// Dragging only moves a transform: the card itself is never rebuilt.
 class CardSwipeLayer extends StatefulWidget {
   final Widget child;
   final bool enabled;
@@ -35,36 +40,45 @@ class CardSwipeLayer extends StatefulWidget {
   State<CardSwipeLayer> createState() => _CardSwipeLayerState();
 }
 
-class _CardSwipeLayerState extends State<CardSwipeLayer> {
-  double _drag = 0;
-  bool _dragging = false;
+class _CardSwipeLayerState extends State<CardSwipeLayer> with SingleTickerProviderStateMixin {
+  static final _spring = SpringDescription.withDampingRatio(mass: 1, stiffness: 320, ratio: 0.85);
+
+  /// Raw finger travel in pixels (negative = left).
+  final ValueNotifier<double> _offset = ValueNotifier(0);
+  late final AnimationController _release;
   bool _armed = false;
 
+  @override
+  void initState() {
+    super.initState();
+    _release = AnimationController.unbounded(vsync: this)..addListener(() => _offset.value = _release.value);
+  }
+
+  @override
+  void dispose() {
+    _release.dispose();
+    _offset.dispose();
+    super.dispose();
+  }
+
+  void _start(DragStartDetails details) => _release.stop();
+
   void _update(DragUpdateDetails details, double width) {
-    final next = (_drag + details.delta.dx).clamp(-width, width);
+    final next = (_offset.value + details.delta.dx).clamp(-width, width);
     final armed = next.abs() >= width * CardSwipeLayer.openFraction;
     if (armed && !_armed) HapticFeedback.selectionClick();
-    setState(() {
-      _drag = next;
-      _dragging = true;
-      _armed = armed;
-    });
+    _armed = armed;
+    _offset.value = next;
   }
 
   void _end(DragEndDetails details, double width) {
     final velocity = details.primaryVelocity ?? 0;
-    final distance = _drag;
-    setState(() {
-      _drag = 0;
-      _dragging = false;
-      _armed = false;
-    });
-    final left =
-        distance <= -width * CardSwipeLayer.openFraction ||
-        velocity <= -CardSwipeLayer.flingVelocity;
-    final right =
-        distance >= width * CardSwipeLayer.openFraction ||
-        velocity >= CardSwipeLayer.flingVelocity;
+    final distance = _offset.value;
+    _armed = false;
+    _springBack(velocity);
+
+    final left = distance <= -width * CardSwipeLayer.openFraction || velocity <= -CardSwipeLayer.flingVelocity;
+    final right = distance >= width * CardSwipeLayer.openFraction || velocity >= CardSwipeLayer.flingVelocity;
     if (left && !right) {
       widget.onSwipeLeft();
     } else if (right && !left) {
@@ -73,10 +87,18 @@ class _CardSwipeLayerState extends State<CardSwipeLayer> {
   }
 
   void _cancel() {
-    setState(() {
-      _drag = 0;
-      _dragging = false;
-      _armed = false;
+    _armed = false;
+    _springBack(0);
+  }
+
+  void _springBack(double velocity) {
+    if (AppMotion.reduced(context)) {
+      _offset.value = 0;
+      return;
+    }
+    _release.value = _offset.value;
+    _release.animateWith(SpringSimulation(_spring, _offset.value, 0, velocity)).whenComplete(() {
+      if (mounted && !_release.isAnimating) _offset.value = 0;
     });
   }
 
@@ -86,37 +108,34 @@ class _CardSwipeLayerState extends State<CardSwipeLayer> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final progress = (_drag.abs() / (width * CardSwipeLayer.openFraction))
-            .clamp(0.0, 1.0);
-        final follow = (_drag * 0.3).clamp(
-          -width * CardSwipeLayer.followFraction,
-          width * CardSwipeLayer.followFraction,
-        );
-        final duration = _dragging
-            ? Duration.zero
-            : const Duration(milliseconds: 180);
+        final follow = width * CardSwipeLayer.followFraction;
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
+          onHorizontalDragStart: _start,
           onHorizontalDragUpdate: (d) => _update(d, width),
           onHorizontalDragEnd: (d) => _end(d, width),
           onHorizontalDragCancel: _cancel,
+          // The same two children in the same order at all times, so the card
+          // keeps its state when a drag begins or ends. The hint is drawn
+          // last, over the card, so the sliding card never hides it.
           child: Stack(
             children: [
-              if (_drag != 0)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: _EdgeHint(
-                      towardsSolution: _drag < 0,
-                      progress: progress,
-                      armed: _armed,
+              ValueListenableBuilder<double>(
+                valueListenable: _offset,
+                child: widget.child,
+                builder: (context, offset, child) =>
+                    Transform.translate(offset: Offset((offset * 0.3).clamp(-follow, follow), 0), child: child),
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _offset,
+                      builder: (context, offset, _) =>
+                          _EdgeHint(offset: offset, threshold: width * CardSwipeLayer.openFraction),
                     ),
                   ),
                 ),
-              AnimatedContainer(
-                duration: duration,
-                curve: Curves.easeOut,
-                transform: Matrix4.translationValues(follow, 0, 0),
-                child: widget.child,
               ),
             ],
           ),
@@ -126,48 +145,41 @@ class _CardSwipeLayerState extends State<CardSwipeLayer> {
   }
 }
 
+/// The chip on the screen edge saying what the swipe will open. It fades in
+/// with the drag (by colour, not an opacity layer) and lights up once the
+/// swipe is far enough to open.
 class _EdgeHint extends StatelessWidget {
-  final bool towardsSolution;
-  final double progress;
-  final bool armed;
+  final double offset;
+  final double threshold;
 
-  const _EdgeHint({
-    required this.towardsSolution,
-    required this.progress,
-    required this.armed,
-  });
+  const _EdgeHint({required this.offset, required this.threshold});
 
   @override
   Widget build(BuildContext context) {
+    // The spring only ever gets near zero, so treat a hair's breadth as rest.
+    if (offset.abs() < 0.5) return const SizedBox.shrink();
     final p = context.palette;
-    final label = towardsSolution ? 'Solution' : 'Topics';
-    final icon = towardsSolution
-        ? Icons.lightbulb_outline_rounded
-        : Icons.explore_rounded;
+    final progress = (offset.abs() / threshold).clamp(0.0, 1.0);
+    final armed = progress >= 1;
+    final towardsSolution = offset < 0;
+    final fill = (armed ? p.accent : p.surfaceHigh).withValues(alpha: progress);
+    final ink = (armed ? p.onAccent : p.textMuted).withValues(alpha: progress);
     return Align(
       alignment: towardsSolution ? Alignment.centerRight : Alignment.centerLeft,
-      child: Opacity(
-        opacity: progress,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          decoration: BoxDecoration(
-            color: armed ? p.accent : p.surfaceHigh,
-            borderRadius: BorderRadius.circular(AppRadius.control),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: armed ? p.onAccent : p.textMuted, size: 22),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.micro.copyWith(
-                  color: armed ? p.onAccent : p.textMuted,
-                ),
-              ),
-            ],
-          ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(AppRadius.control)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(towardsSolution ? Icons.lightbulb_outline_rounded : Icons.explore_rounded, color: ink, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              towardsSolution ? 'Solution' : 'Topics',
+              style: Theme.of(context).textTheme.micro.copyWith(color: ink),
+            ),
+          ],
         ),
       ),
     );
