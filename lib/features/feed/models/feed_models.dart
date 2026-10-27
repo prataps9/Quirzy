@@ -1,3 +1,5 @@
+import 'daily_challenge.dart';
+
 /// A single practice question in the feed's local content pool.
 class PracticeQuestion {
   final String id;
@@ -79,8 +81,9 @@ class TopicSummary {
 }
 
 /// The kind of lane a [FeedLane] represents: the adaptive For You feed,
-/// one topic, weak topics, the revision vault, or saved questions.
-enum FeedLaneType { forYou, topic, weakTopics, revision, bookmarks }
+/// the Daily 5, one topic, weak topics, the revision vault, or saved
+/// questions.
+enum FeedLaneType { forYou, daily, topic, weakTopics, revision, bookmarks }
 
 /// One entry in the Lane Switcher (swipe-right / lane-chip tap).
 class FeedLane {
@@ -103,6 +106,10 @@ class FeedLane {
     id: 'for_you',
     label: 'For You',
   );
+
+  /// Today's Daily 5. Its label and count depend on the day's set, but the id
+  /// is always the same.
+  static const dailyId = 'daily';
 
   bool get isInfinite => type == FeedLaneType.forYou;
 
@@ -407,6 +414,9 @@ class FeedState {
   /// The latest celebration to show, if any.
   final FeedReward? reward;
 
+  /// Today's Daily 5 while that lane is open.
+  final DailyChallenge? daily;
+
   FeedState({
     required this.lane,
     this.cards = const [],
@@ -428,6 +438,7 @@ class FeedState {
     this.sessionXp = 0,
     this.todayAnswered = 0,
     this.reward,
+    this.daily,
   }) : sessionStart = sessionStart ?? DateTime.now();
 
   factory FeedState.initial() => FeedState(lane: FeedLane.forYou);
@@ -455,6 +466,7 @@ class FeedState {
     int? sessionXp,
     int? todayAnswered,
     FeedReward? reward,
+    DailyChallenge? daily,
   }) {
     return FeedState(
       lane: lane ?? this.lane,
@@ -478,6 +490,7 @@ class FeedState {
       sessionXp: sessionXp ?? this.sessionXp,
       todayAnswered: todayAnswered ?? this.todayAnswered,
       reward: reward ?? this.reward,
+      daily: daily ?? this.daily,
     );
   }
 }

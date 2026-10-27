@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../models/daily_challenge.dart';
 import '../models/feed_models.dart';
 import '../models/topic_mastery.dart';
 import '../models/topic_style.dart';
@@ -191,6 +192,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
     final p = context.palette;
     final focusIndex = _focus.round().clamp(0, lanes.length - 1);
     final focusLane = lanes[focusIndex];
+    final challenge = ref.watch(dailyChallengeProvider).value;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -220,6 +222,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                         mastery,
                         currentId,
                         node.index == focusIndex,
+                        challenge,
                       ),
                   ],
                 ),
@@ -232,6 +235,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
           child: _FocusDetail(
             lane: focusLane,
             mastery: focusLane.type == FeedLaneType.topic ? mastery[focusLane.label] : null,
+            daily: challenge,
             onOpen: () => _open(focusLane),
           ),
         ),
@@ -247,6 +251,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
     Map<String, TopicMastery> mastery,
     String currentId,
     bool focused,
+    DailyChallenge? challenge,
   ) {
     final width = layout.size.width;
     final left = node.center.dx - _nodeSize / 2;
@@ -275,6 +280,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                   child: _NodeBubble(
                     lane: lane,
                     mastery: topicMastery,
+                    daily: lane.type == FeedLaneType.daily ? challenge : null,
                     focused: focused,
                     current: lane.id == currentId,
                   ),
@@ -302,20 +308,32 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
 class _NodeBubble extends StatelessWidget {
   final FeedLane lane;
   final TopicMastery? mastery;
+
+  /// Today's challenge, for the Daily 5 node's progress ring.
+  final DailyChallenge? daily;
   final bool focused;
   final bool current;
 
-  const _NodeBubble({required this.lane, required this.mastery, required this.focused, required this.current});
+  const _NodeBubble({
+    required this.lane,
+    required this.mastery,
+    required this.daily,
+    required this.focused,
+    required this.current,
+  });
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final level = mastery?.level ?? MasteryLevel.fresh;
-    final ringColor = switch (level) {
-      MasteryLevel.weak => p.danger,
-      MasteryLevel.mastered => p.success,
-      _ => p.accentText,
-    };
+    final dailyDone = daily?.completed ?? false;
+    final ringColor = dailyDone
+        ? p.success
+        : switch (level) {
+            MasteryLevel.weak => p.danger,
+            MasteryLevel.mastered => p.success,
+            _ => p.accentText,
+          };
     final icon = lane.type == FeedLaneType.topic ? TopicStyle.of(lane.label).icon : iconForLane(lane.type);
     final filled = focused || current;
     return SizedBox(
@@ -323,11 +341,13 @@ class _NodeBubble extends StatelessWidget {
       height: _nodeSize,
       child: CustomPaint(
         painter: _RingPainter(
-          progress: mastery == null ? 0 : mastery!.accuracy / 100,
+          progress: daily != null
+              ? (daily!.total == 0 ? 0 : daily!.answered / daily!.total)
+              : (mastery == null ? 0 : mastery!.accuracy / 100),
           color: ringColor,
           track: p.border,
           dashed: lane.type == FeedLaneType.topic && level == MasteryLevel.fresh,
-          filled: level == MasteryLevel.mastered,
+          filled: level == MasteryLevel.mastered || dailyDone,
         ),
         child: Padding(
           padding: const EdgeInsets.all(6),
@@ -349,9 +369,10 @@ class _NodeBubble extends StatelessWidget {
 class _FocusDetail extends ConsumerWidget {
   final FeedLane lane;
   final TopicMastery? mastery;
+  final DailyChallenge? daily;
   final VoidCallback onOpen;
 
-  const _FocusDetail({required this.lane, required this.mastery, required this.onOpen});
+  const _FocusDetail({required this.lane, required this.mastery, required this.daily, required this.onOpen});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -360,6 +381,11 @@ class _FocusDetail extends ConsumerWidget {
     final lines = <String>[
       switch (lane.type) {
         FeedLaneType.forYou => 'Adapts to what you like and skip',
+        FeedLaneType.daily => switch (daily) {
+          final d? when d.completed => 'Done today: ${d.correct} of ${d.total} right',
+          final d? when d.answered > 0 => '${d.answered} of ${d.total} done today',
+          _ => '${lane.count} questions, a fresh set every day',
+        },
         FeedLaneType.revision => '${lane.count} due for revision',
         FeedLaneType.weakTopics => '${lane.count} ${lane.count == 1 ? 'topic' : 'topics'} to work on',
         FeedLaneType.bookmarks => '${lane.count} saved',

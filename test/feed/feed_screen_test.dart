@@ -2,8 +2,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:quirzy/features/feed/models/daily_challenge.dart';
 import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/screens/feed_screen.dart';
@@ -445,6 +447,79 @@ void main() {
       await settle(tester);
       expect(inDial('Math'), findsOneWidget);
       expect(inDial('Art'), findsOneWidget);
+      await _tearDown(tester);
+    });
+  });
+
+  group('Daily 5', () {
+    final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
+    const dailyLane = FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily 5', count: 5);
+
+    Future<ProviderContainer> pumpDaily(WidgetTester tester, {List<Override> extra = const []}) async {
+      tester.view
+        ..physicalSize = const Size(1080, 1920)
+        ..devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            feedQuestionPoolProvider.overrideWith((ref) async => pool),
+            ...sideEffectOverrides(),
+            isOnlineProvider.overrideWith((ref) => Stream.value(true)),
+            ...extra,
+          ],
+          child: const MaterialApp(home: FeedScreen()),
+        ),
+      );
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      return ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+    }
+
+    testWidgets('a finished Daily 5 ends on its result page with the score and bonus', (tester) async {
+      final container = await pumpDaily(tester);
+      final controller = container.read(feedControllerProvider.notifier);
+      await tester.runAsync(() async {
+        await controller.switchLane(dailyLane);
+        for (var i = 0; i < 5; i++) {
+          controller.activate(i);
+          await controller.selectOption(i, 0);
+        }
+        await controller.switchLane(dailyLane);
+      });
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      expect(find.text('Daily 5 done: 5 of 5 right'), findsOneWidget);
+      expect(find.textContaining('+25 XP earned'), findsOneWidget);
+      expect(find.text('Share result'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _tearDown(tester);
+    });
+
+    testWidgets('the dial shows how far through the Daily 5 you are', (tester) async {
+      await pumpDaily(
+        tester,
+        extra: [
+          // For You isn't listed, so the dial opens on the Daily 5.
+          feedLanesProvider.overrideWith((ref) async => [dailyLane]),
+          dailyChallengeProvider.overrideWith(
+            (ref) async => const DailyChallenge(
+              date: '2026-10-27',
+              keys: ['a', 'b', 'c', 'd', 'e'],
+              results: {'a': true, 'b': false},
+            ),
+          ),
+        ],
+      );
+      await tester.tap(find.byTooltip('Topics'));
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.text('Daily 5'), findsWidgets);
+      expect(find.text('2 of 5 done today'), findsOneWidget);
       await _tearDown(tester);
     });
   });

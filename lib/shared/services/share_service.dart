@@ -42,6 +42,19 @@ Your turn? #Quirzy
     );
   }
 
+  /// Shares a finished Daily 5.
+  static Future<void> shareDailyChallenge({required int correct, required int total}) async {
+    final text =
+        '''
+⚡ Daily 5 on Quirzy: $correct of $total right.
+
+Can you beat it? #Quirzy
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'My Quirzy Daily 5'),
+    );
+  }
+
   /// Shares a practice question as a challenge, without revealing the
   /// answer.
   static Future<void> shareQuestion({

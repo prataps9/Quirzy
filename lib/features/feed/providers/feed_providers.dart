@@ -9,8 +9,10 @@ import '../../home/providers/home_stats_provider.dart';
 import '../../flashcards/services/flashcard_cache.dart';
 import '../../flashcards/services/saved_cards_service.dart';
 import '../../flashcards/services/srs_service.dart';
+import '../models/daily_challenge.dart';
 import '../models/feed_models.dart';
 import '../models/topic_mastery.dart';
+import '../services/daily_challenge_service.dart';
 import '../services/explain_service.dart';
 import '../services/feed_bookmark_service.dart';
 import '../services/feed_engagement_service.dart';
@@ -54,6 +56,15 @@ final srsServiceProvider = Provider<SrsService>((ref) => SrsService());
 final savedCardsServiceProvider = Provider<SavedCardsService>((ref) => SavedCardsService());
 final questionNotesServiceProvider = Provider<QuestionNotesService>((ref) => QuestionNotesService());
 final explainServiceProvider = Provider<ExplainService>((ref) => ExplainService());
+final dailyChallengeServiceProvider = Provider<DailyChallengeService>((ref) => DailyChallengeService());
+
+/// Today's Daily 5 and how far through it the user is; null when there are
+/// no questions to ask. Re-read when an answer is recorded.
+final dailyChallengeProvider = FutureProvider.autoDispose<DailyChallenge?>((ref) async {
+  final pool = await ref.watch(feedQuestionPoolProvider.future);
+  final weak = await ref.watch(feedStatsServiceProvider).getWeakTopics();
+  return ref.watch(dailyChallengeServiceProvider).today(pool, weakTopics: weak);
+});
 
 /// Due flashcards (already started in Cards) whose text is cached on the
 /// device, most overdue first — the feed slots these in between questions.
@@ -99,9 +110,12 @@ final feedLanesProvider = FutureProvider<List<FeedLane>>((ref) async {
   final weakTopics = await stats.getWeakTopics();
   final dueCount = await revision.getDueCount();
   final bookmarkCount = await bookmarks.getCount();
+  final daily = await ref.watch(dailyChallengeProvider.future);
 
   return [
     FeedLane.forYou,
+    if (daily != null)
+      FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily ${daily.total}', count: daily.total),
     if (dueCount > 0)
       FeedLane(type: FeedLaneType.revision, id: 'revision', label: 'Revision Vault', count: dueCount),
     if (weakTopics.isNotEmpty)
@@ -431,6 +445,7 @@ class FeedController extends Notifier<FeedState> {
   Future<List<PracticeQuestion>> _questionsForLane(FeedLane lane) async {
     switch (lane.type) {
       case FeedLaneType.forYou:
+      case FeedLaneType.daily:
         return const [];
       case FeedLaneType.topic:
         return _freshFirst(_eligible.where((q) => q.topicName == lane.label));
@@ -468,7 +483,16 @@ class FeedController extends Notifier<FeedState> {
 
     var cards = <FeedCardState>[];
     var hasMore = false;
-    if (target.isInfinite) {
+    DailyChallenge? daily;
+    if (target.type == FeedLaneType.daily) {
+      daily = await ref.read(dailyChallengeServiceProvider).today(_eligible, weakTopics: await _stats.getWeakTopics());
+      final byKey = {for (final q in _eligible) q.engagementKey: q};
+      cards = [
+        if (daily != null)
+          for (final key in daily.keys)
+            if (!daily.isAnswered(key)) _card(byKey[key]!),
+      ];
+    } else if (target.isInfinite) {
       if (_tinyPool) _session.reset();
       final batch = _ranker.nextBatch(
         _snapshot(),
@@ -484,7 +508,8 @@ class FeedController extends Notifier<FeedState> {
 
     final prefs = await SharedPreferences.getInstance();
     var startIndex = 0;
-    if (restorePosition && !target.isInfinite) {
+    // The Daily 5 only lists what's left, so a saved position means nothing.
+    if (restorePosition && !target.isInfinite && target.type != FeedLaneType.daily) {
       final ts = prefs.getInt('feed_lane_ts_${target.id}');
       if (ts != null && DateTime.now().millisecondsSinceEpoch - ts < const Duration(hours: 24).inMilliseconds) {
         final saved = prefs.getInt('feed_lane_pos_${target.id}') ?? 0;
@@ -511,6 +536,7 @@ class FeedController extends Notifier<FeedState> {
       laneEpoch: state.laneEpoch + 1,
       hasMore: hasMore,
       allTopicsHidden: _fullPool.isNotEmpty && _muted.isNotEmpty && _eligible.isEmpty,
+      daily: daily,
     );
     ref.invalidate(topicStoriesProvider);
   }
@@ -751,6 +777,7 @@ class FeedController extends Notifier<FeedState> {
 
     await ref.read(feedStatsServiceProvider).recordAttempt(question.topic, correct);
     await ref.read(feedRevisionServiceProvider).recordOutcome(question, correct);
+    if (state.lane.type == FeedLaneType.daily) await _recordDaily(question, correct);
 
     var leveledUpTo = 0;
     if (correct) {
@@ -769,6 +796,23 @@ class FeedController extends Notifier<FeedState> {
       firstOfDay: attempt.firstOfDay,
     );
     _maybeInsertRecap();
+  }
+
+  /// Counts an answer towards the Daily 5 and pays the bonus the moment the
+  /// last question is answered.
+  Future<void> _recordDaily(PracticeQuestion question, bool correct) async {
+    final current = state.daily;
+    if (current == null) return;
+    final service = ref.read(dailyChallengeServiceProvider);
+    var updated = await service.record(current, question.engagementKey, correct);
+    var bonus = 0;
+    if (updated.completed && updated.bonusXp == null) {
+      bonus = DailyChallengeService.bonusFor(updated);
+      await ref.read(xpServiceProvider).addXPToday(bonus);
+      updated = await service.saveBonus(updated, bonus);
+    }
+    state = state.copyWith(daily: updated, sessionXp: state.sessionXp + bonus);
+    ref.invalidate(dailyChallengeProvider); // the lane list watches it too
   }
 
   /// Slots a "your session so far" card in as the next new card every

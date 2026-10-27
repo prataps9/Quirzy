@@ -8,7 +8,7 @@ wrong, with flashcards, a daily streak and a progress view alongside.
 
 | Tab | What it does |
 |---|---|
-| **Practice** | An endless, adaptive *For You* feed. Swipe up for the next card, left for the solution (with Ask AI, notes and save-as-flashcard), right for the topic dial. It mixes multiple-choice questions, True/False, "Remember this?" facts from questions you missed, and due flashcards. Lanes for single topics, weak topics, revision and saved questions. Streak, daily goal, combo, XP and a session recap every 15 answers. |
+| **Practice** | An endless, adaptive *For You* feed. Swipe up for the next card, left for the solution (with Ask AI, notes and save-as-flashcard), right for the topic dial. It mixes multiple-choice questions, True/False, "Remember this?" facts from questions you missed, and due flashcards. A **Daily 5** (same five questions all day, leaning on your weak topics, with an XP bonus for finishing) plus lanes for single topics, weak topics, revision and saved questions, all on the topic dial, which also shows how well each topic is going. Streak, daily goal, combo, XP and a session recap every 15 answers. |
 | **Home** | Generate a new topic with AI (or add your own questions, paste notes, or build a study set) and jump into it. |
 | **My Prep** | Streak, XP and level, per-topic accuracy, exam countdown, leaderboard and a shareable progress card. |
 | **Cards** | AI-generated flashcard sets with spaced repetition, favourites and exam-specific suggestions. |

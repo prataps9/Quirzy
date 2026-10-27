@@ -13,6 +13,7 @@ import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../progress/services/share_card_service.dart';
+import '../models/daily_challenge.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
 import '../services/feed_audio.dart';
@@ -425,10 +426,22 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
+  Widget _dailyEnd(_FeedView view) => _DailyEnd(
+    onShare: _shareDaily,
+    onFinish: () => _controller.switchLane(view.lane),
+    onForYou: () => _controller.switchLane(FeedLane.forYou),
+    onAddTopic: () => ref.read(tabIndexProvider.notifier).state = 1,
+  );
+
+  Future<void> _shareDaily(DailyChallenge daily) =>
+      ShareService.shareDailyChallenge(correct: daily.correct, total: daily.total);
+
   Widget _buildBody(_FeedView view, {required bool readAloud}) {
     if (view.loading && view.cardCount == 0) {
       return const Center(child: CircularProgressIndicator());
     }
+    // Finished (or nothing to ask): the Daily 5 ends on its own result page.
+    if (view.cardCount == 0 && view.lane.type == FeedLaneType.daily) return _dailyEnd(view);
     if (view.cardCount == 0) return _buildEmptyState(view);
 
     final visible = _feedVisible;
@@ -443,6 +456,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         onPageChanged: _handlePageChanged,
         itemBuilder: (context, index) {
           if (index >= view.cardCount) {
+            if (view.lane.type == FeedLaneType.daily) return _dailyEnd(view);
             return _EndOfLane(
               lane: view.lane,
               cardCount: _cards.where((c) => c.isQuiz).length,
@@ -943,6 +957,74 @@ class _EndOfLane extends StatelessWidget {
               onPressed: forYou ? onGoAgain : onReplay,
             ),
             if (!forYou) TextButton(onPressed: onBrowse, child: const Text('Browse another lane')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The last page of the Daily 5: the score and bonus when it's finished,
+/// or a nudge to finish the rest.
+class _DailyEnd extends ConsumerWidget {
+  final Future<void> Function(DailyChallenge daily) onShare;
+  final VoidCallback onFinish;
+  final VoidCallback onForYou;
+  final VoidCallback onAddTopic;
+
+  const _DailyEnd({
+    required this.onShare,
+    required this.onFinish,
+    required this.onForYou,
+    required this.onAddTopic,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final daily = ref.watch(feedControllerProvider.select((s) => s.daily));
+
+    final String title;
+    final String body;
+    final List<Widget> actions;
+    if (daily == null) {
+      title = 'No Daily 5 yet';
+      body = 'Add a topic and a fresh set of five will be waiting here every day.';
+      actions = [AppButton(label: 'Add a topic', onPressed: onAddTopic)];
+    } else if (daily.completed) {
+      title = 'Daily 5 done: ${daily.correct} of ${daily.total} right';
+      final xp = daily.bonusXp;
+      body = '${xp == null ? '' : '+$xp XP earned. '}Come back tomorrow for a fresh set.';
+      actions = [
+        AppButton(label: 'Share result', icon: Icons.ios_share_rounded, onPressed: () => onShare(daily)),
+        const SizedBox(height: 10),
+        AppButton.secondary(label: 'Continue in For You', onPressed: onForYou),
+      ];
+    } else {
+      title = 'Almost there';
+      body = "You've answered ${daily.answered} of ${daily.total} today. Finish the rest to earn your bonus.";
+      actions = [
+        AppButton(label: 'Finish the rest', onPressed: onFinish),
+        const SizedBox(height: 10),
+        AppButton.secondary(label: 'Continue in For You', onPressed: onForYou),
+      ];
+    }
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(daily?.completed == true ? Icons.emoji_events_rounded : Icons.bolt_rounded, size: 56, color: p.accentText),
+            const SizedBox(height: 18),
+            Text(title, textAlign: TextAlign.center, style: text.titleLarge),
+            const SizedBox(height: 8),
+            Text(body, textAlign: TextAlign.center, style: text.bodyMedium!.copyWith(color: p.textMuted)),
+            const SizedBox(height: 22),
+            ...actions,
           ],
         ),
       ),

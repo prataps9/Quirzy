@@ -11,6 +11,8 @@ IconData iconForLane(FeedLaneType type) {
   switch (type) {
     case FeedLaneType.forYou:
       return Icons.explore_rounded;
+    case FeedLaneType.daily:
+      return Icons.bolt_rounded;
     case FeedLaneType.topic:
       return Icons.layers_rounded;
     case FeedLaneType.weakTopics:
