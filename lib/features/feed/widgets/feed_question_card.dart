@@ -565,7 +565,10 @@ class _Heart extends StatelessWidget {
               ? 1.2 - 0.2 * ((t - 0.3) / 0.15)
               : 1.0;
           final opacity = t < 0.6 ? 1.0 : 1 - (t - 0.6) / 0.4;
-          return Opacity(opacity: opacity.clamp(0.0, 1.0), child: Transform.scale(scale: scale, child: child));
+          return Opacity(
+            opacity: opacity.clamp(0.0, 1.0),
+            child: Transform.scale(scale: scale, child: child),
+          );
         },
         child: Icon(Icons.favorite_rounded, color: context.palette.like, size: 84),
       ),
@@ -656,7 +659,8 @@ class _ShakeState extends State<_Shake> with SingleTickerProviderStateMixin {
   }
 }
 
-/// Fades and lifts a card's content in as [animation] runs from 0 to 1.
+/// Lifts a card's content a little as [animation] runs from 0 to 1. It only
+/// moves (no fade), so it costs nothing while the page is still settling.
 class _Entrance extends StatelessWidget {
   final Animation<double> animation;
   final Widget child;
@@ -670,10 +674,7 @@ class _Entrance extends StatelessWidget {
     return AnimatedBuilder(
       animation: curved,
       child: child,
-      builder: (context, child) => Opacity(
-        opacity: 0.45 + 0.55 * curved.value,
-        child: Transform.translate(offset: Offset(0, 14 * (1 - curved.value)), child: child),
-      ),
+      builder: (context, child) => Transform.translate(offset: Offset(0, 10 * (1 - curved.value)), child: child),
     );
   }
 }

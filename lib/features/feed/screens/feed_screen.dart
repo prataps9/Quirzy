@@ -108,6 +108,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   static const _advanceAfterCorrect = Duration(milliseconds: 1200);
   static const _advanceAfterRead = Duration(milliseconds: 500);
 
+  /// How long the automatic move to the next card takes: about as long as a
+  /// thumb flick settles, so it feels like the same gesture.
+  static const _autoAdvanceTime = Duration(milliseconds: 340);
+
   FeedController get _controller => ref.read(feedControllerProvider.notifier);
   FeedAudio get _audio => ref.read(feedAudioProvider);
   List<FeedCardState> get _cards => ref.read(feedControllerProvider).cards;
@@ -232,7 +236,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (from >= state.cards.length || state.cards[from].uid != uid) return;
       final itemCount = state.cards.length + (state.hasMore ? 0 : 1);
       if (from + 1 >= itemCount) return;
-      _pageController.animateToPage(from + 1, duration: AppMotion.of(context, AppMotion.slow), curve: AppMotion.enter);
+      _pageController.animateToPage(
+        from + 1,
+        duration: AppMotion.of(context, _autoAdvanceTime),
+        curve: Curves.easeInOutCubic,
+      );
     });
   }
 
@@ -240,7 +248,11 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   void _moveOn(int index) {
     _controller.acknowledgeCard(index);
     if (!_pageController.hasClients) return;
-    _pageController.animateToPage(index + 1, duration: AppMotion.of(context, AppMotion.slow), curve: AppMotion.enter);
+    _pageController.animateToPage(
+      index + 1,
+      duration: AppMotion.of(context, _autoAdvanceTime),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
   void _handlePageChanged(int newIndex) {
@@ -473,11 +485,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         allowImplicitScrolling: true,
         itemCount: itemCount,
         onPageChanged: _handlePageChanged,
-        itemBuilder: (context, index) => _PageMotion(
-          controller: _pageController,
-          index: index,
-          child: _buildPage(view, index, visible: visible, readAloud: readAloud),
-        ),
+        itemBuilder: (context, index) => _buildPage(view, index, visible: visible, readAloud: readAloud),
       ),
     );
 
@@ -1140,46 +1148,41 @@ class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderSta
   }
 }
 
-/// A softer page spring for the Reels scroll: heavier and critically damped,
-/// so a flick glides to rest without overshooting.
+/// The Reels page feel: the page follows the finger one-to-one, a flick of
+/// any strength turns exactly one page (even a hard throw never skips two),
+/// and it settles quickly on a critically damped spring that keeps the
+/// speed of the flick, so there is no overshoot or wobble.
 class _ReelsPhysics extends PageScrollPhysics {
   const _ReelsPhysics({super.parent});
+
+  /// A flick faster than this (px/s) always turns the page, however short
+  /// the drag. Slower releases snap to whichever page is nearer.
+  static const _flick = 120.0;
+
+  static final _snap = SpringDescription.withDampingRatio(mass: 1, stiffness: 360, ratio: 1);
 
   @override
   _ReelsPhysics applyTo(ScrollPhysics? ancestor) => _ReelsPhysics(parent: buildParent(ancestor));
 
   @override
-  SpringDescription get spring => const SpringDescription(mass: 0.8, stiffness: 140, damping: 22);
-}
-
-/// Shrinks a page slightly as it moves away from the middle of the screen,
-/// so cards feel like they stack and slide. Only a transform changes while
-/// scrolling; the page itself is not rebuilt.
-class _PageMotion extends StatelessWidget {
-  final PageController controller;
-  final int index;
-  final Widget child;
-
-  const _PageMotion({required this.controller, required this.index, required this.child});
-
-  static const _minScale = 0.94;
+  SpringDescription get spring => _snap;
 
   @override
-  Widget build(BuildContext context) {
-    if (AppMotion.reduced(context)) return child;
-    return AnimatedBuilder(
-      animation: controller,
-      child: child,
-      builder: (context, child) {
-        var distance = 0.0;
-        if (controller.hasClients && controller.position.hasPixels && controller.position.haveDimensions) {
-          distance = ((controller.page ?? index.toDouble()) - index).abs().clamp(0.0, 1.0);
-        }
-        // Always a Transform (scale 1 at rest): swapping the wrapper in and out
-        // would rebuild the whole card, losing its state, as a swipe starts.
-        return Transform.scale(scale: 1 - (1 - _minScale) * distance, child: child);
-      },
-    );
+  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
+    // Past the first or last page: leave it to the usual edge handling.
+    if ((velocity <= 0 && position.pixels <= position.minScrollExtent) ||
+        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    final page = position.pixels / position.viewportDimension;
+    final targetPage = velocity > _flick
+        ? page.ceilToDouble()
+        : velocity < -_flick
+        ? page.floorToDouble()
+        : page.roundToDouble();
+    final target = (targetPage * position.viewportDimension).clamp(position.minScrollExtent, position.maxScrollExtent);
+    if (target == position.pixels) return null;
+    return ScrollSpringSimulation(spring, position.pixels, target, velocity, tolerance: toleranceFor(position));
   }
 }
 

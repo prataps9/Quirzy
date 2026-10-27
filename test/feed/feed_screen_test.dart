@@ -687,6 +687,52 @@ void main() {
       await _tearDown(tester);
     });
 
+    testWidgets('a hard throw still moves exactly one card', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.byType(PageView), const Offset(0, -500), 9000);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(_page(tester), closeTo(1, 0.01));
+      await _tearDown(tester);
+    });
+
+    testWidgets('a short, quick flick turns the page', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.byType(PageView), const Offset(0, -60), 900);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(_page(tester), closeTo(1, 0.01));
+      await _tearDown(tester);
+    });
+
+    testWidgets('a short, slow drag settles back on the same card', (tester) async {
+      await _pumpFeed(tester, pool);
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(PageView)));
+      await gesture.moveBy(const Offset(0, -80));
+      await tester.pump(const Duration(milliseconds: 400)); // hold: no speed
+      await gesture.up();
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(_page(tester), 0);
+      await _tearDown(tester);
+    });
+
+    testWidgets('the page settles quickly, without wobbling past the card', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.byType(PageView), const Offset(0, -500), 1500);
+      var highest = 0.0;
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        highest = math.max(highest, _page(tester));
+      }
+      expect(highest, lessThanOrEqualTo(1.001), reason: 'no overshoot');
+      expect(_page(tester), closeTo(1, 0.01), reason: 'at rest within half a second');
+      await _tearDown(tester);
+    });
+
     testWidgets('a slightly diagonal swipe up still moves to the next card', (tester) async {
       await _pumpFeed(tester, pool);
       await tester.fling(find.byType(PageView), const Offset(40, -500), 1500);
