@@ -72,4 +72,10 @@ void main() {
   test('no deprecated withOpacity', () {
     expect(offenders(RegExp(r'\.withOpacity\(')), isEmpty);
   });
+
+  test('the red DEBUG ribbon stays off', () {
+    final app = File('lib/app.dart').readAsStringSync();
+    expect(app, contains('debugShowCheckedModeBanner: false'));
+    expect(offenders(RegExp(r'debugShowCheckedModeBanner:\s*true|showPerformanceOverlay:\s*true')), isEmpty);
+  });
 }

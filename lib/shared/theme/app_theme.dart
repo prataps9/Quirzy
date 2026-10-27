@@ -48,6 +48,13 @@ class AppTheme {
       textTheme: textTheme,
       primaryTextTheme: textTheme,
       splashFactory: InkRipple.splashFactory,
+      // Screens fade forward instead of snapping in.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
       dividerColor: p.border,
       dividerTheme: DividerThemeData(color: p.border, thickness: 1, space: 1),
       appBarTheme: AppBarTheme(

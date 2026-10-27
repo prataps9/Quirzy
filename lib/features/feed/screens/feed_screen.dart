@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
 import '../../../shared/services/share_service.dart';
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
@@ -79,9 +80,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   late final AppLifecycleListener _lifecycle;
   Timer? _rewardTimer;
   Timer? _rewardDelay;
-  FeedReward? _bannerReward;
+
+  /// The celebration banner shown at the top, and the last one shown, kept
+  /// so the banner can slide out instead of vanishing.
+  final ValueNotifier<FeedReward?> _bannerReward = ValueNotifier(null);
+  FeedReward? _lastReward;
   Timer? _advanceTimer;
   int _currentIndex = 0;
+
+  /// Bumped when the page changes. Pages listen to this instead of the whole
+  /// screen rebuilding in the middle of a swipe.
+  final ValueNotifier<int> _page = ValueNotifier(0);
   int _handledEpoch = 0;
 
   /// The feed is really in front of the user only when its tab is showing,
@@ -108,8 +117,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   @override
   void initState() {
     super.initState();
-    _controller.isScrollIdle = () =>
-        !_pageController.hasClients || !_pageController.position.isScrollingNotifier.value;
+    _controller.isScrollIdle = () => !_pageController.hasClients || !_pageController.position.isScrollingNotifier.value;
     _lifecycle = AppLifecycleListener(
       onStateChange: (lifecycleState) {
         final resumed = lifecycleState == AppLifecycleState.resumed;
@@ -125,6 +133,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     _rewardTimer?.cancel();
     _rewardDelay?.cancel();
     _confetti.dispose();
+    _bannerReward.dispose();
+    _page.dispose();
     _lifecycle.dispose();
     _pageController.dispose();
     super.dispose();
@@ -222,11 +232,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       if (from >= state.cards.length || state.cards[from].uid != uid) return;
       final itemCount = state.cards.length + (state.hasMore ? 0 : 1);
       if (from + 1 >= itemCount) return;
-      _pageController.animateToPage(
-        from + 1,
-        duration: const Duration(milliseconds: 380),
-        curve: Curves.easeOutCubic,
-      );
+      _pageController.animateToPage(from + 1, duration: AppMotion.of(context, AppMotion.slow), curve: AppMotion.enter);
     });
   }
 
@@ -234,11 +240,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
   void _moveOn(int index) {
     _controller.acknowledgeCard(index);
     if (!_pageController.hasClients) return;
-    _pageController.animateToPage(
-      index + 1,
-      duration: const Duration(milliseconds: 380),
-      curve: Curves.easeOutCubic,
-    );
+    _pageController.animateToPage(index + 1, duration: AppMotion.of(context, AppMotion.slow), curve: AppMotion.enter);
   }
 
   void _handlePageChanged(int newIndex) {
@@ -252,8 +254,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
           if (_pageController.hasClients) {
             _pageController.animateToPage(
               leavingIndex,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
+              duration: AppMotion.of(context, AppMotion.base),
+              curve: AppMotion.enter,
             );
           }
         });
@@ -269,7 +271,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
     if (newIndex == _currentIndex) return;
     _silence();
-    setState(() => _currentIndex = newIndex);
+    _currentIndex = newIndex;
+    _page.value = newIndex;
     if (feedState.showHints) _controller.dismissHints();
     _controller.savePosition(newIndex);
   }
@@ -294,9 +297,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       HapticFeedback.mediumImpact();
       _confetti.play();
       _rewardTimer?.cancel();
-      setState(() => _bannerReward = reward);
+      _lastReward = reward;
+      _bannerReward.value = reward;
       _rewardTimer = Timer(const Duration(milliseconds: 3200), () {
-        if (mounted) setState(() => _bannerReward = null);
+        if (mounted) _bannerReward.value = null;
       });
     });
   }
@@ -384,7 +388,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                     onOpenLanes: _openLaneSwitcher,
                     onOpenMyPrep: _openMyPrep,
                   ),
-                  Expanded(child: _buildBody(view, readAloud: readAloud)),
+                  Expanded(
+                    child: _LaneFade(
+                      epoch: view.laneEpoch,
+                      child: _buildBody(view, readAloud: readAloud),
+                    ),
+                  ),
                 ],
               ),
               Align(
@@ -405,18 +414,25 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 top: 56,
                 left: 16,
                 right: 16,
-                child: IgnorePointer(
-                  ignoring: _bannerReward == null,
-                  child: AnimatedSlide(
-                    offset: _bannerReward == null ? const Offset(0, -0.6) : Offset.zero,
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedOpacity(
-                      opacity: _bannerReward == null ? 0 : 1,
-                      duration: const Duration(milliseconds: 180),
-                      child: _bannerReward == null ? const SizedBox(height: 0) : _RewardBanner(reward: _bannerReward!),
-                    ),
-                  ),
+                child: ValueListenableBuilder<FeedReward?>(
+                  valueListenable: _bannerReward,
+                  builder: (context, reward, _) {
+                    final shown = reward != null;
+                    final banner = reward ?? _lastReward;
+                    return IgnorePointer(
+                      ignoring: !shown,
+                      child: AnimatedSlide(
+                        offset: shown ? Offset.zero : const Offset(0, -0.6),
+                        duration: AppMotion.of(context, AppMotion.base),
+                        curve: shown ? AppMotion.enter : AppMotion.exit,
+                        child: AnimatedOpacity(
+                          opacity: shown ? 1 : 0,
+                          duration: AppMotion.of(context, AppMotion.base),
+                          child: banner == null ? const SizedBox(height: 0) : _RewardBanner(reward: banner),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -426,11 +442,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     );
   }
 
-  Widget _dailyEnd(_FeedView view) => _DailyEnd(
-    onShare: _shareDaily,
-    onFinish: () => _controller.switchLane(view.lane),
-    onForYou: () => _controller.switchLane(FeedLane.forYou),
-    onAddTopic: () => ref.read(tabIndexProvider.notifier).state = 1,
+  Widget _dailyEnd(_FeedView view) => FadeRise(
+    child: _DailyEnd(
+      onShare: _shareDaily,
+      onFinish: () => _controller.switchLane(view.lane),
+      onForYou: () => _controller.switchLane(FeedLane.forYou),
+      onAddTopic: () => ref.read(tabIndexProvider.notifier).state = 1,
+    ),
   );
 
   Future<void> _shareDaily(DailyChallenge daily) =>
@@ -442,7 +460,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     }
     // Finished (or nothing to ask): the Daily 5 ends on its own result page.
     if (view.cardCount == 0 && view.lane.type == FeedLaneType.daily) return _dailyEnd(view);
-    if (view.cardCount == 0) return _buildEmptyState(view);
+    if (view.cardCount == 0) return FadeRise(child: _buildEmptyState(view));
 
     final visible = _feedVisible;
     final itemCount = view.cardCount + (view.hasMore ? 0 : 1);
@@ -451,52 +469,62 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
       child: PageView.builder(
         controller: _pageController,
         scrollDirection: Axis.vertical,
+        physics: const _ReelsPhysics(),
         allowImplicitScrolling: true,
         itemCount: itemCount,
         onPageChanged: _handlePageChanged,
-        itemBuilder: (context, index) {
-          if (index >= view.cardCount) {
-            if (view.lane.type == FeedLaneType.daily) return _dailyEnd(view);
-            return _EndOfLane(
-              lane: view.lane,
-              cardCount: _cards.where((c) => c.isQuiz).length,
-              onGoAgain: _controller.refreshForYou,
-              onReplay: _controller.reshuffleCurrentLane,
-              onForYou: () => _controller.switchLane(FeedLane.forYou),
-              onAddTopic: () => ref.read(tabIndexProvider.notifier).state = 1,
-              onBrowse: _openLaneSwitcher,
-            );
-          }
-          // Each page watches only its own card.
-          return Consumer(
-            builder: (context, ref, _) {
-              final card = ref.watch(
-                feedControllerProvider.select((s) => index < s.cards.length ? s.cards[index] : null),
-              );
-              if (card == null) return const SizedBox.shrink();
-              return _buildCard(card, index, view, isActive: index == _currentIndex && visible, readAloud: readAloud);
-            },
-          );
-        },
+        itemBuilder: (context, index) => _PageMotion(
+          controller: _pageController,
+          index: index,
+          child: _buildPage(view, index, visible: visible, readAloud: readAloud),
+        ),
       ),
     );
 
     return Stack(
       children: [
         pages,
-        if (view.showHints && _currentIndex == 0)
-          const Positioned(left: 0, right: 0, bottom: 64, child: IgnorePointer(child: _SwipeUpHint())),
+        if (view.showHints)
+          ValueListenableBuilder<int>(
+            valueListenable: _page,
+            builder: (context, _, _) => _currentIndex == 0
+                ? const Positioned(left: 0, right: 0, bottom: 64, child: IgnorePointer(child: _SwipeUpHint()))
+                : const SizedBox.shrink(),
+          ),
       ],
     );
   }
 
-  Widget _buildCard(
-    FeedCardState card,
-    int index,
-    _FeedView view, {
-    required bool isActive,
-    required bool readAloud,
-  }) {
+  Widget _buildPage(_FeedView view, int index, {required bool visible, required bool readAloud}) {
+    if (index >= view.cardCount) {
+      if (view.lane.type == FeedLaneType.daily) return _dailyEnd(view);
+      return FadeRise(
+        child: _EndOfLane(
+          lane: view.lane,
+          cardCount: _cards.where((c) => c.isQuiz).length,
+          onGoAgain: _controller.refreshForYou,
+          onReplay: _controller.reshuffleCurrentLane,
+          onForYou: () => _controller.switchLane(FeedLane.forYou),
+          onAddTopic: () => ref.read(tabIndexProvider.notifier).state = 1,
+          onBrowse: _openLaneSwitcher,
+        ),
+      );
+    }
+    // Each page watches only its own card, and re-reads which page is active
+    // when the page changes, so a swipe never rebuilds the whole feed.
+    return ValueListenableBuilder<int>(
+      valueListenable: _page,
+      builder: (context, _, _) => Consumer(
+        builder: (context, ref, _) {
+          final card = ref.watch(feedControllerProvider.select((s) => index < s.cards.length ? s.cards[index] : null));
+          if (card == null) return const SizedBox.shrink();
+          return _buildCard(card, index, view, isActive: index == _currentIndex && visible, readAloud: readAloud);
+        },
+      ),
+    );
+  }
+
+  Widget _buildCard(FeedCardState card, int index, _FeedView view, {required bool isActive, required bool readAloud}) {
     final topic = card.question.topicName;
     if (card.kind == FeedCardKind.recap) {
       return RepaintBoundary(
@@ -672,11 +700,7 @@ class _FeedHeader extends StatelessWidget {
           if (lane.isInfinite)
             const SizedBox(width: 16)
           else
-            IconButton(
-              tooltip: 'Back to For You',
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back_rounded),
-            ),
+            IconButton(tooltip: 'Back to For You', onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded)),
           Flexible(
             child: GestureDetector(
               onTap: lane.isInfinite ? onRefresh : null,
@@ -692,10 +716,7 @@ class _FeedHeader extends StatelessWidget {
               ),
             ),
           const Spacer(),
-          if (combo >= 2) ...[
-            _ComboChip(combo: combo),
-            const SizedBox(width: 6),
-          ],
+          if (combo >= 2) ...[_ComboChip(combo: combo), const SizedBox(width: 6)],
           Semantics(
             button: true,
             label: streak.current == 0
@@ -709,20 +730,23 @@ class _FeedHeader extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 9),
                 child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: streak.practisedToday ? p.streakSoft : p.surfaceHigh,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: streak.practisedToday ? p.streakSoft : p.surfaceHigh,
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.local_fire_department_rounded, size: 18, color: flame),
+                      const SizedBox(width: 2),
+                      Text(
+                        '${streak.current}',
+                        style: text.labelLarge!.copyWith(color: flame, fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.local_fire_department_rounded, size: 18, color: flame),
-                    const SizedBox(width: 2),
-                    Text('${streak.current}', style: text.labelLarge!.copyWith(color: flame, fontWeight: FontWeight.w800)),
-                  ],
-                ),
-              ),
               ),
             ),
           ),
@@ -738,11 +762,7 @@ class _FeedHeader extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Topics',
-            onPressed: onOpenLanes,
-            icon: const Icon(Icons.explore_rounded),
-          ),
+          IconButton(tooltip: 'Topics', onPressed: onOpenLanes, icon: const Icon(Icons.explore_rounded)),
         ],
       ),
     );
@@ -815,10 +835,7 @@ class _GoalRing extends StatelessWidget {
             if (reached)
               Icon(Icons.check_rounded, size: 18, color: p.success)
             else
-              Text(
-                '$done',
-                style: Theme.of(context).textTheme.micro,
-              ),
+              Text('$done', style: Theme.of(context).textTheme.micro),
           ],
         ),
       ),
@@ -838,29 +855,24 @@ class _RewardBanner extends StatelessWidget {
 
     final (IconData icon, Color color, String title, String? subtitle) = switch (reward.kind) {
       FeedRewardKind.streak => (
-          Icons.local_fire_department_rounded,
-          p.streak,
-          reward.value <= 1 ? 'Streak started!' : '${reward.value}-day streak!',
-          reward.value <= 1 ? 'Come back tomorrow to keep it going.' : 'You practised today — keep it alive.',
-        ),
+        Icons.local_fire_department_rounded,
+        p.streak,
+        reward.value <= 1 ? 'Streak started!' : '${reward.value}-day streak!',
+        reward.value <= 1 ? 'Come back tomorrow to keep it going.' : 'You practised today — keep it alive.',
+      ),
       FeedRewardKind.comboMilestone => (
-          Icons.bolt_rounded,
-          p.accentText,
-          '${reward.value} in a row!',
-          '+$kFeedComboBonusXp bonus XP',
-        ),
+        Icons.bolt_rounded,
+        p.accentText,
+        '${reward.value} in a row!',
+        '+$kFeedComboBonusXp bonus XP',
+      ),
       FeedRewardKind.dailyGoal => (
-          Icons.emoji_events_rounded,
-          p.success,
-          'Daily goal hit!',
-          '${reward.value} questions today. Nice work.',
-        ),
-      FeedRewardKind.levelUp => (
-          Icons.military_tech_rounded,
-          p.accentText,
-          'Level ${reward.value} reached!',
-          null,
-        ),
+        Icons.emoji_events_rounded,
+        p.success,
+        'Daily goal hit!',
+        '${reward.value} questions today. Nice work.',
+      ),
+      FeedRewardKind.levelUp => (Icons.military_tech_rounded, p.accentText, 'Level ${reward.value} reached!', null),
     };
 
     return Material(
@@ -885,8 +897,7 @@ class _RewardBanner extends StatelessWidget {
                 ],
               ),
             ),
-            if (reward.kind == FeedRewardKind.streak && reward.value >= 2 ||
-                reward.kind == FeedRewardKind.dailyGoal)
+            if (reward.kind == FeedRewardKind.streak && reward.value >= 2 || reward.kind == FeedRewardKind.dailyGoal)
               TextButton(
                 onPressed: () => reward.kind == FeedRewardKind.dailyGoal
                     ? ShareService.shareDailyGoal(questions: reward.value)
@@ -934,7 +945,9 @@ class _EndOfLane extends StatelessWidget {
             Icon(Icons.emoji_events_rounded, size: 56, color: p.accentText),
             const SizedBox(height: 18),
             Text(
-              forYou ? "You've practised all $cardCount ${cardCount == 1 ? 'question' : 'questions'}" : "You're all caught up",
+              forYou
+                  ? "You've practised all $cardCount ${cardCount == 1 ? 'question' : 'questions'}"
+                  : "You're all caught up",
               textAlign: TextAlign.center,
               style: text.titleLarge,
             ),
@@ -947,10 +960,7 @@ class _EndOfLane extends StatelessWidget {
               style: text.bodyMedium!.copyWith(color: p.textMuted),
             ),
             const SizedBox(height: 22),
-            AppButton(
-              label: forYou ? 'Add a topic' : 'Continue in For You',
-              onPressed: forYou ? onAddTopic : onForYou,
-            ),
+            AppButton(label: forYou ? 'Add a topic' : 'Continue in For You', onPressed: forYou ? onAddTopic : onForYou),
             const SizedBox(height: 10),
             AppButton.secondary(
               label: forYou ? 'Go again' : 'Replay this lane',
@@ -972,12 +982,7 @@ class _DailyEnd extends ConsumerWidget {
   final VoidCallback onForYou;
   final VoidCallback onAddTopic;
 
-  const _DailyEnd({
-    required this.onShare,
-    required this.onFinish,
-    required this.onForYou,
-    required this.onAddTopic,
-  });
+  const _DailyEnd({required this.onShare, required this.onFinish, required this.onForYou, required this.onAddTopic});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1018,11 +1023,19 @@ class _DailyEnd extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(daily?.completed == true ? Icons.emoji_events_rounded : Icons.bolt_rounded, size: 56, color: p.accentText),
+            Icon(
+              daily?.completed == true ? Icons.emoji_events_rounded : Icons.bolt_rounded,
+              size: 56,
+              color: p.accentText,
+            ),
             const SizedBox(height: 18),
             Text(title, textAlign: TextAlign.center, style: text.titleLarge),
             const SizedBox(height: 8),
-            Text(body, textAlign: TextAlign.center, style: text.bodyMedium!.copyWith(color: p.textMuted)),
+            Text(
+              body,
+              textAlign: TextAlign.center,
+              style: text.bodyMedium!.copyWith(color: p.textMuted),
+            ),
             const SizedBox(height: 22),
             ...actions,
           ],
@@ -1060,7 +1073,11 @@ class _EmptyMessage extends StatelessWidget {
           const SizedBox(height: 20),
           Text(title, textAlign: TextAlign.center, style: text.titleLarge),
           const SizedBox(height: 10),
-          Text(body, textAlign: TextAlign.center, style: text.bodyMedium!.copyWith(color: p.textMuted)),
+          Text(
+            body,
+            textAlign: TextAlign.center,
+            style: text.bodyMedium!.copyWith(color: p.textMuted),
+          ),
           const SizedBox(height: 24),
           AppButton(label: actionLabel, onPressed: onAction),
         ],
@@ -1079,10 +1096,8 @@ class _SwipeUpHint extends StatefulWidget {
 }
 
 class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderStateMixin {
-  late final AnimationController _bounce = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
+  late final AnimationController _bounce = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
 
   @override
   void dispose() {
@@ -1095,10 +1110,8 @@ class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderSta
     final p = context.palette;
     return AnimatedBuilder(
       animation: _bounce,
-      builder: (context, child) => Transform.translate(
-        offset: Offset(0, -8 * Curves.easeInOut.transform(_bounce.value)),
-        child: child,
-      ),
+      builder: (context, child) =>
+          Transform.translate(offset: Offset(0, -8 * Curves.easeInOut.transform(_bounce.value)), child: child),
       child: Center(
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -1114,7 +1127,9 @@ class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderSta
                   'Swipe up for the next one',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w700),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w700),
                 ),
               ),
             ],
@@ -1123,4 +1138,81 @@ class _SwipeUpHintState extends State<_SwipeUpHint> with SingleTickerProviderSta
       ),
     );
   }
+}
+
+/// A softer page spring for the Reels scroll: heavier and critically damped,
+/// so a flick glides to rest without overshooting.
+class _ReelsPhysics extends PageScrollPhysics {
+  const _ReelsPhysics({super.parent});
+
+  @override
+  _ReelsPhysics applyTo(ScrollPhysics? ancestor) => _ReelsPhysics(parent: buildParent(ancestor));
+
+  @override
+  SpringDescription get spring => const SpringDescription(mass: 0.8, stiffness: 140, damping: 22);
+}
+
+/// Shrinks a page slightly as it moves away from the middle of the screen,
+/// so cards feel like they stack and slide. Only a transform changes while
+/// scrolling; the page itself is not rebuilt.
+class _PageMotion extends StatelessWidget {
+  final PageController controller;
+  final int index;
+  final Widget child;
+
+  const _PageMotion({required this.controller, required this.index, required this.child});
+
+  static const _minScale = 0.94;
+
+  @override
+  Widget build(BuildContext context) {
+    if (AppMotion.reduced(context)) return child;
+    return AnimatedBuilder(
+      animation: controller,
+      child: child,
+      builder: (context, child) {
+        var distance = 0.0;
+        if (controller.hasClients && controller.position.hasPixels && controller.position.haveDimensions) {
+          distance = ((controller.page ?? index.toDouble()) - index).abs().clamp(0.0, 1.0);
+        }
+        // Always a Transform (scale 1 at rest): swapping the wrapper in and out
+        // would rebuild the whole card, losing its state, as a swipe starts.
+        return Transform.scale(scale: 1 - (1 - _minScale) * distance, child: child);
+      },
+    );
+  }
+}
+
+/// Fades a lane in when it (re)loads, so switching lanes doesn't pop.
+class _LaneFade extends StatefulWidget {
+  final int epoch;
+  final Widget child;
+
+  const _LaneFade({required this.epoch, required this.child});
+
+  @override
+  State<_LaneFade> createState() => _LaneFadeState();
+}
+
+class _LaneFadeState extends State<_LaneFade> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(vsync: this, duration: AppMotion.base, value: 1);
+  late final Animation<double> _opacity = Tween<double>(
+    begin: 0.2,
+    end: 1,
+  ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.enter));
+
+  @override
+  void didUpdateWidget(_LaneFade old) {
+    super.didUpdateWidget(old);
+    if (old.epoch != widget.epoch && !AppMotion.reduced(context)) _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(opacity: _opacity, child: widget.child);
 }

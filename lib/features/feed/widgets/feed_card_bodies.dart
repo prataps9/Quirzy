@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../flashcards/services/srs_service.dart';
@@ -92,10 +93,13 @@ class TrueFalseBody extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Row(children: [verdict(true), const SizedBox(width: 12), verdict(false)]),
-        if (resolved && !card.tfStatementTrue) ...[
-          const SizedBox(height: 12),
-          _AnswerLine(answer: q.options[q.correctIndex]),
-        ],
+        Reveal(
+          show: resolved && !card.tfStatementTrue,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: _AnswerLine(answer: q.options[q.correctIndex]),
+          ),
+        ),
       ],
     );
   }

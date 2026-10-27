@@ -1,12 +1,16 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 
 /// One answer choice. Before an answer it is a quiet outlined row; once
 /// revealed the right option turns green and a wrong pick turns red, each
-/// with an icon so colour is never the only signal.
-class OptionCard extends StatelessWidget {
+/// with an icon so colour is never the only signal. The colours fade, the
+/// icon pops in, and the right answer gives a small bounce.
+class OptionCard extends StatefulWidget {
   final String option;
   final String label;
   final bool isSelected;
@@ -23,9 +27,34 @@ class OptionCard extends StatelessWidget {
   });
 
   @override
+  State<OptionCard> createState() => _OptionCardState();
+}
+
+class _OptionCardState extends State<OptionCard> with SingleTickerProviderStateMixin {
+  // Settled at 1 so a card that is already revealed doesn't bounce on build.
+  late final AnimationController _pop = AnimationController(vsync: this, duration: AppMotion.base, value: 1);
+
+  @override
+  void didUpdateWidget(OptionCard old) {
+    super.didUpdateWidget(old);
+    final wasRight = old.isSelected && old.isCorrect == true;
+    final isRight = widget.isSelected && widget.isCorrect == true;
+    if (isRight && !wasRight && !AppMotion.reduced(context)) _pop.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final theme = Theme.of(context);
+    final duration = AppMotion.of(context, AppMotion.fast);
+    final isSelected = widget.isSelected;
+    final isCorrect = widget.isCorrect;
 
     final Color accent;
     if (isSelected && isCorrect == true) {
@@ -43,52 +72,64 @@ class OptionCard extends StatelessWidget {
     final badgeFill = highlighted ? accent : p.surfaceHigh;
 
     return Semantics(
-      button: onTap != null,
+      button: widget.onTap != null,
       selected: isSelected,
-      label: 'Option $label: $option',
+      label: 'Option ${widget.label}: ${widget.option}',
       child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: fill,
-            borderRadius: BorderRadius.circular(AppRadius.control),
-            border: Border.all(color: accent, width: highlighted ? 2 : 1.5),
-          ),
-          child: Row(
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(color: badgeFill, shape: BoxShape.circle),
-                child: Center(
-                  child: isCorrect != null && isSelected
-                      ? Icon(
-                          isCorrect! ? Icons.check_rounded : Icons.close_rounded,
-                          color: p.onFill(badgeFill),
-                          size: 18,
-                        )
-                      : Text(
-                          label,
-                          style: theme.textTheme.labelMedium!.copyWith(
-                            color: highlighted ? p.onFill(badgeFill) : p.textMuted,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  option,
-                  style: theme.textTheme.option.copyWith(
-                    fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
+        onTap: widget.onTap,
+        child: AnimatedBuilder(
+          animation: _pop,
+          builder: (context, child) =>
+              Transform.scale(scale: 1 + 0.03 * math.sin(_pop.value * math.pi), child: child),
+          child: AnimatedContainer(
+            duration: duration,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: fill,
+              borderRadius: BorderRadius.circular(AppRadius.control),
+              border: Border.all(color: accent, width: highlighted ? 2 : 1.5),
+            ),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: duration,
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(color: badgeFill, shape: BoxShape.circle),
+                  child: Center(
+                    child: AnimatedSwitcher(
+                      duration: duration,
+                      transitionBuilder: (child, animation) =>
+                          ScaleTransition(scale: animation, child: FadeTransition(opacity: animation, child: child)),
+                      child: isCorrect != null && isSelected
+                          ? Icon(
+                              isCorrect ? Icons.check_rounded : Icons.close_rounded,
+                              key: ValueKey(isCorrect),
+                              color: p.onFill(badgeFill),
+                              size: 18,
+                            )
+                          : Text(
+                              widget.label,
+                              key: const ValueKey('label'),
+                              style: theme.textTheme.labelMedium!.copyWith(
+                                color: highlighted ? p.onFill(badgeFill) : p.textMuted,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                    ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    widget.option,
+                    style: theme.textTheme.option.copyWith(
+                      fontWeight: highlighted ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

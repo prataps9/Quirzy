@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../flashcards/services/srs_service.dart';
@@ -87,10 +89,15 @@ class FeedQuestionCard extends StatefulWidget {
   State<FeedQuestionCard> createState() => _FeedQuestionCardState();
 }
 
-class _FeedQuestionCardState extends State<FeedQuestionCard> {
+class _FeedQuestionCardState extends State<FeedQuestionCard> with SingleTickerProviderStateMixin {
   bool _paused = false;
   DateTime? _pressStart;
-  bool _showHeart = false;
+  int _heartPops = 0;
+  Timer? _peekTimer;
+
+  /// Plays once, the first time this card is the one on screen, so content
+  /// eases in instead of just being there.
+  late final AnimationController _enter = AnimationController(vsync: this, duration: AppMotion.slow);
   bool _showPeek = false;
   String? _selectedReason;
   int _xpPops = 0;
@@ -99,12 +106,25 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
   @override
   void initState() {
     super.initState();
-    if (widget.cardState.isResolved) _startPeek();
+    if (widget.cardState.isResolved) {
+      _enter.value = 1; // seen before: nothing to introduce
+      _startPeek();
+    } else if (widget.isActive) {
+      _enter.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _peekTimer?.cancel();
+    _enter.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(covariant FeedQuestionCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isActive && widget.isActive && _enter.value == 0) _enter.forward();
     final justResolved = !oldWidget.cardState.isResolved && widget.cardState.isResolved;
     if (!justResolved) return;
     _startPeek();
@@ -121,7 +141,8 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
 
   void _startPeek() {
     setState(() => _showPeek = true);
-    Future.delayed(const Duration(milliseconds: 2200), () {
+    _peekTimer?.cancel();
+    _peekTimer = Timer(const Duration(milliseconds: 2200), () {
       if (mounted) setState(() => _showPeek = false);
     });
   }
@@ -129,10 +150,8 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
   void _handleDoubleTap() {
     HapticFeedback.mediumImpact();
     widget.onDoubleTapLike();
-    setState(() => _showHeart = true);
-    Future.delayed(const Duration(milliseconds: 650), () {
-      if (mounted) setState(() => _showHeart = false);
-    });
+    // A new key each time, so every double-tap plays the pop from the start.
+    setState(() => _heartPops++);
   }
 
   void _handleLongPressStart(LongPressStartDetails details) {
@@ -163,8 +182,8 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ..._buildOptions(question, card, resolved),
-          if (resolved && _showPeek) _buildPeek(p, question, card),
-          if (resolved && !card.isCorrect && !card.skipped) _buildWrongReasons(p),
+          Reveal(show: resolved && _showPeek, child: _buildPeek(p, question, card)),
+          Reveal(show: resolved && !card.isCorrect && !card.skipped, child: _buildWrongReasons(p)),
         ],
       ),
       FeedCardKind.trueFalse => Column(
@@ -172,7 +191,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
         children: [
           TrueFalseBody(card: card, onAnswer: widget.onTrueFalse),
           const SizedBox(height: 8),
-          if (resolved && _showPeek) _buildPeek(p, question, card),
+          Reveal(show: resolved && _showPeek, child: _buildPeek(p, question, card)),
         ],
       ),
       _ => const SizedBox.shrink(),
@@ -188,7 +207,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
           alignment: Alignment.center,
           children: [
             FactBody(card: card),
-            _Heart(show: _showHeart),
+            _Heart(pops: _heartPops),
           ],
         ),
       ),
@@ -201,7 +220,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
             onDoubleTap: _handleDoubleTap,
             onLongPressStart: _handleLongPressStart,
             onLongPressEnd: _handleLongPressEnd,
-            child: _QuestionBox(text: question.questionText, showHeart: _showHeart),
+            child: _QuestionBox(text: question.questionText, heartPops: _heartPops),
           ),
           if (widget.showGestureHint)
             Padding(
@@ -213,7 +232,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
               ),
             ),
           const SizedBox(height: 12),
-          _shakes == 0 ? answers : _Shake(key: ValueKey(_shakes), child: answers),
+          _Shake(trigger: _shakes, child: answers),
         ],
       ),
     };
@@ -267,7 +286,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [body],
+                              children: [_Entrance(animation: _enter, child: body)],
                             ),
                           ),
                         ),
@@ -330,22 +349,18 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
   Widget _buildPeek(AppPalette p, PracticeQuestion question, FeedCardState card) {
     final explanation = question.explanation.trim();
     if (explanation.isEmpty) return const SizedBox.shrink();
-    return AnimatedOpacity(
-      opacity: _showPeek ? 1 : 0,
-      duration: const Duration(milliseconds: 250),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: card.isCorrect ? p.successSoft : p.dangerSoft,
-          borderRadius: BorderRadius.circular(AppRadius.chip),
-        ),
-        child: Text(
-          explanation,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.caption,
-        ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: card.isCorrect ? p.successSoft : p.dangerSoft,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+      ),
+      child: Text(
+        explanation,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.caption,
       ),
     );
   }
@@ -499,9 +514,9 @@ class _LaneProgress extends StatelessWidget {
 
 class _QuestionBox extends StatelessWidget {
   final String text;
-  final bool showHeart;
+  final int heartPops;
 
-  const _QuestionBox({required this.text, required this.showHeart});
+  const _QuestionBox({required this.text, required this.heartPops});
 
   @override
   Widget build(BuildContext context) {
@@ -519,29 +534,40 @@ class _QuestionBox extends StatelessWidget {
           ),
           child: Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.question),
         ),
-        _Heart(show: showHeart),
+        _Heart(pops: heartPops),
       ],
     );
   }
 }
 
-/// The big heart that pops on double-tap.
+/// The big heart that pops on double-tap: it grows past full size, settles,
+/// then fades. Each double-tap ([pops] going up) plays it again.
 class _Heart extends StatelessWidget {
-  final bool show;
+  final int pops;
 
-  const _Heart({required this.show});
+  const _Heart({required this.pops});
 
   @override
   Widget build(BuildContext context) {
+    if (pops == 0) return const SizedBox.shrink();
+    final reduced = AppMotion.reduced(context);
     return IgnorePointer(
-      child: AnimatedOpacity(
-        opacity: show ? 1 : 0,
-        duration: const Duration(milliseconds: 200),
-        child: AnimatedScale(
-          scale: show ? 1.0 : 0.6,
-          duration: const Duration(milliseconds: 200),
-          child: Icon(Icons.favorite_rounded, color: context.palette.like, size: 84),
-        ),
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(pops),
+        tween: Tween(begin: 0, end: 1),
+        duration: AppMotion.of(context, const Duration(milliseconds: 700)),
+        builder: (context, t, child) {
+          final scale = reduced
+              ? 1.0
+              : t < 0.3
+              ? 0.5 + 0.7 * Curves.easeOut.transform(t / 0.3)
+              : t < 0.45
+              ? 1.2 - 0.2 * ((t - 0.3) / 0.15)
+              : 1.0;
+          final opacity = t < 0.6 ? 1.0 : 1 - (t - 0.6) / 0.4;
+          return Opacity(opacity: opacity.clamp(0.0, 1.0), child: Transform.scale(scale: scale, child: child));
+        },
+        child: Icon(Icons.favorite_rounded, color: context.palette.like, size: 84),
       ),
     );
   }
@@ -585,20 +611,69 @@ class _XpPop extends StatelessWidget {
   }
 }
 
-/// A short horizontal shake, played once when mounted, for a wrong answer.
-class _Shake extends StatelessWidget {
+/// A short horizontal shake that plays each time [trigger] goes up (a wrong
+/// answer). The child stays in the same place in the tree throughout, so the
+/// colour fades on the options still play.
+class _Shake extends StatefulWidget {
+  final int trigger;
   final Widget child;
 
-  const _Shake({super.key, required this.child});
+  const _Shake({required this.trigger, required this.child});
+
+  @override
+  State<_Shake> createState() => _ShakeState();
+}
+
+class _ShakeState extends State<_Shake> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 380),
+    value: 1,
+  );
+
+  @override
+  void didUpdateWidget(_Shake old) {
+    super.didUpdateWidget(old);
+    if (widget.trigger != old.trigger && !AppMotion.reduced(context)) _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 380),
-      builder: (context, t, child) =>
-          Transform.translate(offset: Offset(math.sin(t * math.pi * 6) * (1 - t) * 9, 0), child: child),
+    return AnimatedBuilder(
+      animation: _controller,
+      child: widget.child,
+      builder: (context, child) {
+        final t = _controller.value;
+        return Transform.translate(offset: Offset(math.sin(t * math.pi * 6) * (1 - t) * 9, 0), child: child);
+      },
+    );
+  }
+}
+
+/// Fades and lifts a card's content in as [animation] runs from 0 to 1.
+class _Entrance extends StatelessWidget {
+  final Animation<double> animation;
+  final Widget child;
+
+  const _Entrance({required this.animation, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (AppMotion.reduced(context)) return child;
+    final curved = CurvedAnimation(parent: animation, curve: AppMotion.enter);
+    return AnimatedBuilder(
+      animation: curved,
       child: child,
+      builder: (context, child) => Opacity(
+        opacity: 0.45 + 0.55 * curved.value,
+        child: Transform.translate(offset: Offset(0, 14 * (1 - curved.value)), child: child),
+      ),
     );
   }
 }

@@ -10,6 +10,8 @@ import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/screens/feed_screen.dart';
 import 'package:quirzy/features/feed/services/feed_mixer.dart';
+import 'package:quirzy/features/feed/widgets/feed_question_card.dart';
+import 'package:quirzy/features/feed/widgets/option_card.dart';
 import 'package:quirzy/features/feed/widgets/topic_dial.dart';
 import 'package:quirzy/shared/providers/providers.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
@@ -520,6 +522,118 @@ void main() {
       }
       expect(find.text('Daily 5'), findsWidgets);
       expect(find.text('2 of 5 done today'), findsOneWidget);
+      await _tearDown(tester);
+    });
+  });
+
+  group('motion', () {
+    final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
+
+    Finder optionCard(String label) => find.ancestor(of: find.text(label), matching: find.byType(OptionCard));
+
+    Color? optionFill(WidgetTester tester, String label) {
+      final box = find.descendant(of: optionCard(label), matching: find.byType(DecoratedBox)).first;
+      return (tester.widget<DecoratedBox>(box).decoration as BoxDecoration).color;
+    }
+
+    testWidgets('a wrong answer fades to red instead of snapping', (tester) async {
+      await _pumpFeed(tester, pool);
+      final start = optionFill(tester, 'Option B');
+
+      await tester.tap(find.text('Option B'));
+      await tester.pump(); // first frame of the fade
+      final first = optionFill(tester, 'Option B');
+      await tester.pump(const Duration(milliseconds: 60));
+      final middle = optionFill(tester, 'Option B');
+      await tester.pump(const Duration(milliseconds: 300));
+      final end = optionFill(tester, 'Option B');
+
+      expect(first, start);
+      expect(middle, isNot(first));
+      expect(middle, isNot(end));
+      expect(end, isNot(start));
+      await _tearDown(tester);
+    });
+
+    testWidgets('with animations turned off the answer colours land at once and nothing shakes', (tester) async {
+      tester.view
+        ..physicalSize = const Size(1080, 1920)
+        ..devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            feedQuestionPoolProvider.overrideWith((ref) async => pool),
+            ...sideEffectOverrides(),
+            isOnlineProvider.overrideWith((ref) => Stream.value(true)),
+          ],
+          child: MaterialApp(
+            builder: (context, child) =>
+                MediaQuery(data: MediaQuery.of(context).copyWith(disableAnimations: true), child: child!),
+            home: const FeedScreen(),
+          ),
+        ),
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.tap(find.text('Option B'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
+      final end = optionFill(tester, 'Option B');
+      final place = tester.getTopLeft(optionCard('Option A'));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(optionFill(tester, 'Option B'), end);
+      expect(tester.getTopLeft(optionCard('Option A')), place, reason: 'nothing is still moving');
+      await _tearDown(tester);
+    });
+
+    testWidgets('every double-tap plays the heart again', (tester) async {
+      await _pumpFeed(tester, pool);
+      final question = find.textContaining('What is the answer').first;
+      final heart = find.byWidgetPredicate((w) => w is Icon && w.size == 84);
+      double heartOpacity() => tester.widget<Opacity>(find.ancestor(of: heart, matching: find.byType(Opacity)).first).opacity;
+
+      await tester.tap(question);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(question);
+      await tester.pump(); // the pop starts on the first frame
+      await tester.pump(const Duration(milliseconds: 650));
+      expect(heartOpacity(), lessThan(0.5), reason: 'fading out');
+
+      await tester.tap(question);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(question);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(heartOpacity(), 1.0, reason: 'back at full strength');
+      await _tearDown(tester);
+    });
+
+    testWidgets('the card keeps its state when a swipe starts', (tester) async {
+      await _pumpFeed(tester, pool);
+      final before = tester.state(find.byType(FeedQuestionCard).first);
+
+      final gesture = await tester.startGesture(tester.getCenter(find.byType(PageView)));
+      await gesture.moveBy(const Offset(0, -120));
+      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(_page(tester), greaterThan(0));
+      expect(identical(tester.state(find.byType(FeedQuestionCard).first), before), isTrue);
+      await gesture.up();
+      await _tearDown(tester);
+    });
+
+    testWidgets('a slightly diagonal swipe up still moves to the next card', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.byType(PageView), const Offset(40, -500), 1500);
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(_page(tester), closeTo(1, 0.01));
       await _tearDown(tester);
     });
   });

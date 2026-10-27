@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/notification_scheduler.dart';
+import '../../../shared/theme/app_motion.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/quirzy_navigation_bar.dart';
 import '../../feed/providers/feed_providers.dart';
@@ -100,7 +101,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       canPop: false,
       onPopInvokedWithResult: _handleBack,
       child: Scaffold(
-        body: IndexedStack(index: selectedIndex, children: [for (var i = 0; i < 5; i++) _tab(i)]),
+        body: _FadingIndexedStack(index: selectedIndex, children: [for (var i = 0; i < 5; i++) _tab(i)]),
         bottomNavigationBar: QuirzyNavigationBar(
           selectedIndex: selectedIndex,
           onDestinationSelected: (index) {
@@ -109,6 +110,46 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           },
         ),
       ),
+    );
+  }
+}
+
+/// An [IndexedStack] that fades the newly shown tab in, so switching tabs
+/// doesn't snap. Every tab stays alive underneath, as with a plain stack.
+class _FadingIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+
+  const _FadingIndexedStack({required this.index, required this.children});
+
+  @override
+  State<_FadingIndexedStack> createState() => _FadingIndexedStackState();
+}
+
+class _FadingIndexedStackState extends State<_FadingIndexedStack> with SingleTickerProviderStateMixin {
+  late final AnimationController _fade = AnimationController(vsync: this, duration: AppMotion.base, value: 1);
+  late final Animation<double> _opacity = Tween<double>(
+    begin: 0.35,
+    end: 1,
+  ).animate(CurvedAnimation(parent: _fade, curve: AppMotion.enter));
+
+  @override
+  void didUpdateWidget(_FadingIndexedStack old) {
+    super.didUpdateWidget(old);
+    if (old.index != widget.index && !AppMotion.reduced(context)) _fade.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: IndexedStack(index: widget.index, children: widget.children),
     );
   }
 }
