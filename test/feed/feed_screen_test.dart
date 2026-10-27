@@ -8,6 +8,7 @@ import 'package:quirzy/features/feed/models/feed_models.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/screens/feed_screen.dart';
 import 'package:quirzy/features/feed/services/feed_mixer.dart';
+import 'package:quirzy/features/feed/widgets/topic_dial.dart';
 import 'package:quirzy/shared/providers/providers.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
 import 'package:quirzy/shared/services/settings_service.dart';
@@ -348,5 +349,103 @@ void main() {
     expect(tester.takeException(), isNull);
 
     await _tearDown(tester);
+  });
+
+  group('swipes and the topic dial', () {
+    final pool = [for (var i = 0; i < 20; i++) _q('Math', i)];
+    final lanes = [
+      FeedLane.forYou,
+      const FeedLane(type: FeedLaneType.topic, id: 'topic:Math', label: 'Math', count: 20),
+      const FeedLane(type: FeedLaneType.topic, id: 'topic:Art', label: 'Art', count: 9),
+    ];
+
+    Future<void> pumpWithLanes(WidgetTester tester) async {
+      tester.view
+        ..physicalSize = const Size(1080, 1920)
+        ..devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            feedQuestionPoolProvider.overrideWith((ref) async => pool),
+            feedLanesProvider.overrideWith((ref) async => lanes),
+            ...sideEffectOverrides(),
+            isOnlineProvider.overrideWith((ref) => Stream.value(true)),
+          ],
+          child: const MaterialApp(home: FeedScreen()),
+        ),
+      );
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Finder inDial(String label) => find.descendant(of: find.byType(TopicDial), matching: find.text(label));
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    testWidgets('swiping left over the answers opens the solution', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.text('Option C'), const Offset(-300, 0), 1500);
+      await settle(tester);
+      expect(find.text('Solution'), findsOneWidget);
+      await _tearDown(tester);
+    });
+
+    testWidgets('swiping right on empty space opens the topic dial', (tester) async {
+      await pumpWithLanes(tester);
+      await tester.fling(find.byKey(const ValueKey('feed_card_0')), const Offset(300, 0), 1500);
+      await settle(tester);
+      expect(find.text('Topics'), findsOneWidget);
+      expect(find.text('Focus mode'), findsOneWidget);
+      await _tearDown(tester);
+    });
+
+    testWidgets('a short, slow drag springs back without opening anything', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.drag(find.text('Option C'), const Offset(-40, 0));
+      await settle(tester);
+      expect(find.text('Solution'), findsNothing);
+      expect(find.text('Topics'), findsNothing);
+      await _tearDown(tester);
+    });
+
+    testWidgets('a swipe does not answer the question under the finger', (tester) async {
+      await _pumpFeed(tester, pool);
+      await tester.fling(find.text('Option B'), const Offset(-300, 0), 1500);
+      await settle(tester);
+      expect(find.byIcon(Icons.close_rounded), findsNothing);
+      await _tearDown(tester);
+    });
+
+    testWidgets('turning the dial and tapping Open switches to that lane', (tester) async {
+      await pumpWithLanes(tester);
+      await tester.tap(find.byTooltip('Topics'));
+      await settle(tester);
+      expect(find.text('Topics'), findsOneWidget);
+
+      await tester.tap(inDial('Math'));
+      await settle(tester);
+
+      expect(find.text('Focus mode'), findsNothing);
+      final container = ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+      expect(container.read(feedControllerProvider).lane.id, 'topic:Math');
+      await _tearDown(tester);
+    });
+
+    testWidgets('the list view lists every lane', (tester) async {
+      await pumpWithLanes(tester);
+      await tester.tap(find.byTooltip('Topics'));
+      await settle(tester);
+      await tester.tap(find.byTooltip('Show as list'));
+      await settle(tester);
+      expect(inDial('Math'), findsOneWidget);
+      expect(inDial('Art'), findsOneWidget);
+      await _tearDown(tester);
+    });
   });
 }

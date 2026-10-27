@@ -9,6 +9,7 @@ import '../../home/providers/home_stats_provider.dart';
 import '../../flashcards/services/flashcard_cache.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
+import '../models/topic_mastery.dart';
 import '../services/feed_bookmark_service.dart';
 import '../services/feed_engagement_service.dart';
 import '../services/feed_mixer.dart';
@@ -100,6 +101,27 @@ final feedLanesProvider = FutureProvider<List<FeedLane>>((ref) async {
       FeedLane(type: FeedLaneType.bookmarks, id: 'bookmarks', label: 'Saved', count: bookmarkCount),
     ...topicLanes,
   ];
+});
+
+/// Per-topic progress for the topic dial. Auto-disposed so it re-reads the
+/// stats each time the dial opens.
+final topicMasteryProvider = FutureProvider.autoDispose<Map<String, TopicMastery>>((ref) async {
+  final stats = await ref.watch(feedStatsServiceProvider).getTopicStats();
+  final due = await ref.watch(feedRevisionServiceProvider).getDueQuestions();
+  final dueByTopic = <String, int>{};
+  for (final q in due) {
+    dueByTopic[q.topicName] = (dueByTopic[q.topicName] ?? 0) + 1;
+  }
+  return {
+    for (final topic in {...stats.keys, ...dueByTopic.keys})
+      topic: TopicMastery(
+        topic: topic,
+        attempts: stats[topic]?.attempts ?? 0,
+        accuracy: stats[topic]?.accuracy ?? 0,
+        dueCount: dueByTopic[topic] ?? 0,
+        lastPracticed: stats[topic]?.lastPracticed,
+      ),
+  };
 });
 
 /// Topics hidden from the feed, for the lane switcher's Unhide list.

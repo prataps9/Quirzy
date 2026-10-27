@@ -21,8 +21,8 @@ import '../widgets/deep_dive_sheet.dart';
 import '../widgets/feed_question_card.dart';
 import '../widgets/feed_session_cards.dart';
 import '../widgets/feed_share_cards.dart';
-import '../widgets/lane_switcher_sheet.dart';
 import '../widgets/long_press_menu_sheet.dart';
+import '../widgets/topic_dial.dart';
 
 /// The Practice tab: one question per screen in an endless vertical feed.
 ///
@@ -305,7 +305,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     DeepDiveSheet.show(context, question, index);
   }
 
-  void _openLaneSwitcher() => LaneSwitcherSheet.show(context);
+  void _openLaneSwitcher() => TopicDial.show(context);
 
   void _openMenu(PracticeQuestion question) => LongPressMenuSheet.show(context, question);
 
@@ -725,9 +725,9 @@ class _FeedHeader extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: 'Lanes',
+            tooltip: 'Topics',
             onPressed: onOpenLanes,
-            icon: const Icon(Icons.layers_rounded),
+            icon: const Icon(Icons.explore_rounded),
           ),
         ],
       ),

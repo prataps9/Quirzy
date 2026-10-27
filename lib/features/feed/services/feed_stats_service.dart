@@ -5,7 +5,11 @@ class TopicStat {
   final int attempts;
   final int correct;
 
-  const TopicStat({this.attempts = 0, this.correct = 0});
+  /// When the topic was last answered; null for stats saved before this was
+  /// recorded.
+  final DateTime? lastPracticed;
+
+  const TopicStat({this.attempts = 0, this.correct = 0, this.lastPracticed});
 
   double get accuracy => attempts == 0 ? 0 : (correct / attempts) * 100;
 }
@@ -20,7 +24,7 @@ class FeedStatsService {
   static const _deprioritizedKey = 'feed_deprioritized_questions';
   static const _wrongReasonKey = 'feed_wrong_reasons';
 
-  Future<void> recordAttempt(String? topic, bool correct) async {
+  Future<void> recordAttempt(String? topic, bool correct, {DateTime? now}) async {
     final t = (topic == null || topic.trim().isEmpty) ? 'General' : topic;
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_statsKey);
@@ -32,6 +36,7 @@ class FeedStatsService {
     );
     entry['attempts'] = (entry['attempts'] as int? ?? 0) + 1;
     if (correct) entry['correct'] = (entry['correct'] as int? ?? 0) + 1;
+    entry['last'] = (now ?? DateTime.now()).millisecondsSinceEpoch;
     map[t] = entry;
     await prefs.setString(_statsKey, jsonEncode(map));
   }
@@ -47,6 +52,10 @@ class FeedStatsService {
         TopicStat(
           attempts: (value as Map<String, dynamic>)['attempts'] as int? ?? 0,
           correct: value['correct'] as int? ?? 0,
+          lastPracticed: switch (value['last']) {
+            final int ms => DateTime.fromMillisecondsSinceEpoch(ms),
+            _ => null,
+          },
         ),
       ),
     );

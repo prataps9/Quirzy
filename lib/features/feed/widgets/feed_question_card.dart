@@ -8,16 +8,12 @@ import '../../../shared/theme/app_text.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
 import '../models/topic_style.dart';
+import 'card_swipe_layer.dart';
 import 'feed_card_bodies.dart';
 import 'option_card.dart';
 import 'question_timer.dart';
 
-const List<String> kWrongAnswerReasons = [
-  'Silly mistake',
-  "Didn't know",
-  'Ran out of time',
-  'Misread it',
-];
+const List<String> kWrongAnswerReasons = ['Silly mistake', "Didn't know", 'Ran out of time', 'Misread it'];
 
 /// One full-screen card in the feed, laid out like an Instagram post, on
 /// its topic's own background tint.
@@ -25,10 +21,10 @@ const List<String> kWrongAnswerReasons = [
 /// From top to bottom: a caption row (topic, why it was picked, timer),
 /// the body for the card's [FeedCardKind] (question and options, True/
 /// False, a "Remember this?" fact, or a flashcard), then an action bar.
-/// Vertical swiping belongs to the enclosing PageView. The question box
-/// handles double-tap to like, long-press for the menu, and horizontal
-/// swipes for the solution or lane switcher. Answer controls sit outside
-/// that region so answering stays instant.
+/// Vertical swiping belongs to the enclosing PageView. A horizontal swipe
+/// anywhere on the card opens the solution (left) or the topic dial
+/// (right); the question box handles double-tap to like and long-press for
+/// the menu, and answer controls sit outside it so answering stays instant.
 class FeedQuestionCard extends StatefulWidget {
   final FeedCardState cardState;
   final bool isActive;
@@ -153,15 +149,6 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
     }
   }
 
-  void _handleHorizontalDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    if (velocity < -250) {
-      widget.onExplain();
-    } else if (velocity > 250) {
-      widget.onOpenLaneSwitcher();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -197,10 +184,12 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
         onDoubleTap: _handleDoubleTap,
         onLongPressStart: _handleLongPressStart,
         onLongPressEnd: _handleLongPressEnd,
-        onHorizontalDragEnd: _handleHorizontalDragEnd,
         child: Stack(
           alignment: Alignment.center,
-          children: [FactBody(card: card), _Heart(show: _showHeart)],
+          children: [
+            FactBody(card: card),
+            _Heart(show: _showHeart),
+          ],
         ),
       ),
       FeedCardKind.flashcard => FlashcardBody(card: card, onFlip: widget.onFlip, onRate: widget.onRate),
@@ -212,14 +201,13 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
             onDoubleTap: _handleDoubleTap,
             onLongPressStart: _handleLongPressStart,
             onLongPressEnd: _handleLongPressEnd,
-            onHorizontalDragEnd: _handleHorizontalDragEnd,
             child: _QuestionBox(text: question.questionText, showHeart: _showHeart),
           ),
           if (widget.showGestureHint)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'Double-tap to like · swipe left for the solution · swipe right for lanes',
+                'Double-tap to like · swipe left for the solution · swipe right for topics',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.labelSmall!.copyWith(color: context.palette.textMuted),
               ),
@@ -232,82 +220,85 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
 
     return ColoredBox(
       color: style.tint(Theme.of(context).brightness),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _Caption(
-                topic: question.topicName,
-                icon: style.icon,
-                reason: card.reason,
-                onTopicTap: widget.onOpenTopic,
-                // A flashcard wraps a set, not a feed question: the menu's
-                // topic and difficulty actions don't apply to it.
-                onMore: card.kind == FeedCardKind.flashcard ? null : widget.onMore,
-                soundOn: widget.soundOn,
-                onToggleSound: widget.onToggleSound,
-                timer: isQuiz
-                    ? QuestionTimer(
-                        paused: _paused || !widget.isActive || resolved,
-                        color: p.textMuted,
-                      )
-                    : null,
-              ),
-              if (card.kind == FeedCardKind.fact)
-                StoryBar(
-                  key: ValueKey('story-${card.uid}'),
-                  duration: factReadingTime(question),
-                  running: widget.isActive && !_paused,
-                  done: card.acknowledged,
-                  onDone: widget.onFactDone,
-                )
-              else if (widget.positionInLane != null)
-                _LaneProgress(position: widget.positionInLane!, length: widget.laneLength),
-              const SizedBox(height: 8),
-              Expanded(
-                child: Stack(
-                  children: [
-                    LayoutBuilder(
-                      builder: (context, constraints) => SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [body],
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (_xpPops > 0)
-                      Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: IgnorePointer(
-                          child: _XpPop(
-                            key: ValueKey(_xpPops),
-                            xp: card.kind == FeedCardKind.trueFalse ? kFeedXpPerTrueFalse : kFeedXpPerCorrect,
-                          ),
-                        ),
-                      ),
-                  ],
+      child: CardSwipeLayer(
+        // A flashcard flips and rates with its own gestures.
+        enabled: card.kind != FeedCardKind.flashcard,
+        onSwipeLeft: widget.onExplain,
+        onSwipeRight: widget.onOpenLaneSwitcher,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Caption(
+                  topic: question.topicName,
+                  icon: style.icon,
+                  reason: card.reason,
+                  onTopicTap: widget.onOpenTopic,
+                  // A flashcard wraps a set, not a feed question: the menu's
+                  // topic and difficulty actions don't apply to it.
+                  onMore: card.kind == FeedCardKind.flashcard ? null : widget.onMore,
+                  soundOn: widget.soundOn,
+                  onToggleSound: widget.onToggleSound,
+                  timer: isQuiz
+                      ? QuestionTimer(paused: _paused || !widget.isActive || resolved, color: p.textMuted)
+                      : null,
                 ),
-              ),
-              _ActionBar(
-                card: card,
-                focusMode: widget.focusMode,
-                onToggleLike: widget.onToggleLike,
-                onExplain: widget.onExplain,
-                onShare: widget.onShare,
-                onSkip: widget.onSkip,
-                onFactDone: widget.onFactDone,
-                onToggleSave: widget.onToggleSave,
-              ),
-            ],
+                if (card.kind == FeedCardKind.fact)
+                  StoryBar(
+                    key: ValueKey('story-${card.uid}'),
+                    duration: factReadingTime(question),
+                    running: widget.isActive && !_paused,
+                    done: card.acknowledged,
+                    onDone: widget.onFactDone,
+                  )
+                else if (widget.positionInLane != null)
+                  _LaneProgress(position: widget.positionInLane!, length: widget.laneLength),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      LayoutBuilder(
+                        builder: (context, constraints) => SingleChildScrollView(
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [body],
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_xpPops > 0)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: IgnorePointer(
+                            child: _XpPop(
+                              key: ValueKey(_xpPops),
+                              xp: card.kind == FeedCardKind.trueFalse ? kFeedXpPerTrueFalse : kFeedXpPerCorrect,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _ActionBar(
+                  card: card,
+                  focusMode: widget.focusMode,
+                  onToggleLike: widget.onToggleLike,
+                  onExplain: widget.onExplain,
+                  onShare: widget.onShare,
+                  onSkip: widget.onSkip,
+                  onFactDone: widget.onFactDone,
+                  onToggleSave: widget.onToggleSave,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -323,9 +314,7 @@ class _FeedQuestionCardState extends State<FeedQuestionCard> {
           child: OptionCard(
             option: question.options[i],
             label: labels[i % labels.length],
-            isSelected: resolved
-                ? (card.selectedOption == i || i == question.correctIndex)
-                : card.selectedOption == i,
+            isSelected: resolved ? (card.selectedOption == i || i == question.correctIndex) : card.selectedOption == i,
             isCorrect: resolved ? i == question.correctIndex : null,
             onTap: resolved
                 ? null
@@ -436,7 +425,10 @@ class _Caption extends StatelessWidget {
                     child: Text.rich(
                       TextSpan(
                         children: [
-                          TextSpan(text: topic, style: const TextStyle(fontWeight: FontWeight.w800)),
+                          TextSpan(
+                            text: topic,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
                           if (reason != null)
                             TextSpan(
                               text: ' · $reason',
@@ -525,11 +517,7 @@ class _QuestionBox extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadius.card),
             border: Border.all(color: p.border),
           ),
-          child: Text(
-            text,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.question,
-          ),
+          child: Text(text, textAlign: TextAlign.center, style: Theme.of(context).textTheme.question),
         ),
         _Heart(show: showHeart),
       ],
@@ -584,10 +572,9 @@ class _XpPop extends StatelessWidget {
                 decoration: BoxDecoration(color: p.accent, borderRadius: BorderRadius.circular(AppRadius.pill)),
                 child: Text(
                   '+$xp XP',
-                  style: Theme.of(context).textTheme.labelLarge!.copyWith(
-                    color: p.onAccent,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge!.copyWith(color: p.onAccent, fontWeight: FontWeight.w800),
                 ),
               ),
             ),
@@ -609,10 +596,8 @@ class _Shake extends StatelessWidget {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 380),
-      builder: (context, t, child) => Transform.translate(
-        offset: Offset(math.sin(t * math.pi * 6) * (1 - t) * 9, 0),
-        child: child,
-      ),
+      builder: (context, t, child) =>
+          Transform.translate(offset: Offset(math.sin(t * math.pi * 6) * (1 - t) * 9, 0), child: child),
       child: child,
     );
   }
@@ -687,10 +672,7 @@ class _ActionBar extends StatelessWidget {
             IconButton(tooltip: 'Share', onPressed: onShare, icon: const Icon(Icons.send_rounded)),
           ],
           Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: trailingAction() ?? const SizedBox.shrink(),
-            ),
+            child: Align(alignment: Alignment.centerRight, child: trailingAction() ?? const SizedBox.shrink()),
           ),
           if (!isFlashcard)
             IconButton(
