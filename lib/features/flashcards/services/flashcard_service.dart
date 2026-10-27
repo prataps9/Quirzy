@@ -2,10 +2,17 @@ import 'dart:convert';
 import 'package:appwrite/appwrite.dart';
 import '../../../shared/appwrite/appwrite_client.dart';
 import 'flashcard_cache.dart';
+import 'saved_cards_service.dart';
 
 /// Flashcard Service using Appwrite. Errors (including [AppwriteException])
 /// are passed through unchanged so the UI can turn them into friendly copy.
 class FlashcardService {
+  FlashcardService({SavedCardsService? saved}) : _saved = saved ?? SavedCardsService();
+
+  /// Cards saved from the practice feed; they live on the device and show
+  /// up beside the server sets.
+  final SavedCardsService _saved;
+
   final Databases _db = AppwriteClient.instance.databases;
   final Functions _fn = AppwriteClient.instance.functions;
   final Account _account = AppwriteClient.instance.account;
@@ -51,6 +58,8 @@ class FlashcardService {
     );
 
     final sets = <Map<String, dynamic>>[];
+    final saved = await _saved.asSet();
+    if (saved != null) sets.add(saved);
     for (final doc in response.documents) {
       final cardsResponse = await _db.listDocuments(
         databaseId: AppwriteConfig.databaseId,
@@ -71,6 +80,11 @@ class FlashcardService {
 
   // Get Flashcard Set by ID
   Future<Map<String, dynamic>> getFlashcardSetById(String setId) async {
+    if (setId == SavedCardsService.setId) {
+      final saved = await _saved.asSet(withCards: true);
+      if (saved == null) throw const FormatException('No saved cards');
+      return saved;
+    }
     final set = await _db.getDocument(
       databaseId: AppwriteConfig.databaseId,
       collectionId: setsCollection,
@@ -105,6 +119,7 @@ class FlashcardService {
 
   // Delete Flashcard Set
   Future<void> deleteFlashcardSet(String setId) async {
+    if (setId == SavedCardsService.setId) return _saved.clear();
     final cards = await _db.listDocuments(
       databaseId: AppwriteConfig.databaseId,
       collectionId: cardsCollection,

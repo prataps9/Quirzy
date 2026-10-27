@@ -17,6 +17,7 @@ class AppwriteConfig {
   static const String quizGenerateFunction = 'quiz-generate';
   static const String studyGenerateFunction = 'study-generate';
   static const String challengeManageFunction = 'challenge-manage';
+  static const String explainFunction = 'explain-question';
 
   // Additional collections (used by shared services)
   static const String usersCollection = 'users';

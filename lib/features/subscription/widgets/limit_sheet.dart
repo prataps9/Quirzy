@@ -19,11 +19,13 @@ Future<void> showLimitSheet(BuildContext context, UsageKind kind) {
   HapticFeedback.mediumImpact();
   return showModalBottomSheet<void>(
     context: context,
+    // Taller than the default 9/16 cap, which clips this on small phones.
+    isScrollControlled: true,
     builder: (sheetContext) {
       final p = sheetContext.palette;
       final text = Theme.of(sheetContext).textTheme;
       return SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,

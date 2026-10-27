@@ -8,7 +8,7 @@ wrong, with flashcards, a daily streak and a progress view alongside.
 
 | Tab | What it does |
 |---|---|
-| **Practice** | An endless, adaptive *For You* feed. Swipe up for the next card; it mixes multiple-choice questions, True/False, "Remember this?" facts from questions you missed, and due flashcards. Lanes for single topics, weak topics, revision and saved questions. Streak, daily goal, combo, XP and a session recap every 15 answers. |
+| **Practice** | An endless, adaptive *For You* feed. Swipe up for the next card, left for the solution (with Ask AI, notes and save-as-flashcard), right for the topic dial. It mixes multiple-choice questions, True/False, "Remember this?" facts from questions you missed, and due flashcards. Lanes for single topics, weak topics, revision and saved questions. Streak, daily goal, combo, XP and a session recap every 15 answers. |
 | **Home** | Generate a new topic with AI (or add your own questions, paste notes, or build a study set) and jump into it. |
 | **My Prep** | Streak, XP and level, per-topic accuracy, exam countdown, leaderboard and a shareable progress card. |
 | **Cards** | AI-generated flashcard sets with spaced repetition, favourites and exam-specific suggestions. |
@@ -41,6 +41,22 @@ flutter run
 
 - **Appwrite:** endpoint, project and collection ids are in
   `lib/shared/appwrite/appwrite_client.dart`.
+- **Ask AI (`explain-question` function):** the solution panel's Ask AI box
+  calls an Appwrite function with this id. Deploy it for Ask AI to work;
+  until then the box says "Ask AI isn't available right now". It receives a
+  JSON body and must return `{"answer": "<plain text>"}` (or `{"error": "…"}`):
+
+  ```json
+  {
+    "question": "…", "options": ["…"], "correctIndex": 0,
+    "explanation": "…", "topic": "…", "userId": "…",
+    "mode": "simpler | example | others | memory | followUp",
+    "followUp": "only when mode is followUp"
+  }
+  ```
+
+  Free accounts get 5 AI answers a day (`UsageKind.aiExplain`); answers to
+  the four canned modes are cached on the device and cost nothing again.
 - **Razorpay:** set your live key id in `kRazorpayKeyId`
   (`lib/features/subscription/services/payment_service.dart`). Checkout
   won't open with the placeholder.

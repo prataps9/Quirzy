@@ -7,9 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../shared/services/notification_scheduler.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../../flashcards/services/flashcard_cache.dart';
+import '../../flashcards/services/saved_cards_service.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/feed_models.dart';
 import '../models/topic_mastery.dart';
+import '../services/explain_service.dart';
 import '../services/feed_bookmark_service.dart';
 import '../services/feed_engagement_service.dart';
 import '../services/feed_mixer.dart';
@@ -18,6 +20,7 @@ import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
 import '../services/leaderboard_sync.dart';
 import '../services/practice_content_service.dart';
+import '../services/question_notes_service.dart';
 import '../services/streak_service.dart';
 import '../services/xp_service.dart';
 
@@ -48,12 +51,18 @@ final feedRevisionServiceProvider = Provider<FeedRevisionService>((ref) => FeedR
 final feedRankerProvider = Provider<FeedRanker>((ref) => FeedRanker());
 final feedMixerProvider = Provider<FeedMixer>((ref) => FeedMixer());
 final srsServiceProvider = Provider<SrsService>((ref) => SrsService());
+final savedCardsServiceProvider = Provider<SavedCardsService>((ref) => SavedCardsService());
+final questionNotesServiceProvider = Provider<QuestionNotesService>((ref) => QuestionNotesService());
+final explainServiceProvider = Provider<ExplainService>((ref) => ExplainService());
 
 /// Due flashcards (already started in Cards) whose text is cached on the
 /// device, most overdue first — the feed slots these in between questions.
 final dueFeedFlashcardsProvider = FutureProvider<List<FeedFlashcard>>((ref) async {
   final keys = await ref.watch(srsServiceProvider).dueStartedKeys();
-  final cached = await FlashcardCache.cardsByKey();
+  final cached = {
+    ...await FlashcardCache.cardsByKey(),
+    ...await ref.watch(savedCardsServiceProvider).cardsByKey(),
+  };
   return [for (final key in keys) ?cached[key]];
 });
 

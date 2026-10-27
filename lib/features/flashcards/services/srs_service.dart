@@ -111,6 +111,16 @@ class SrsService {
     return card;
   }
 
+  /// Starts [setId]'s card at [index] so it is due now, without counting as a
+  /// review. Does nothing if it already has a schedule.
+  Future<void> enroll(String setId, int index) async {
+    final cards = await _loadAll();
+    final key = cardKey(setId, index);
+    if (cards.containsKey(key)) return;
+    cards[key] = SrsCard(key: key);
+    await _saveAll(cards);
+  }
+
   /// Keys (`<setId>_<index>`) of cards already started in Cards that are
   /// due now, most overdue first. Brand-new cards are left to Cards.
   Future<List<String>> dueStartedKeys() async {

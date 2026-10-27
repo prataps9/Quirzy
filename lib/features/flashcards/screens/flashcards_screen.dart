@@ -473,6 +473,7 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    ref.listen<int>(savedCardsVersionProvider, (_, _) => _loadFlashcardSets());
 
     return Scaffold(
       body: SafeArea(

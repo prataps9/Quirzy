@@ -26,6 +26,13 @@ enum UsageKind {
     plural: 'flashcard sets',
     countKey: 'daily_flashcard_set_count',
     dateKey: 'last_flashcard_set_date',
+  ),
+  aiExplain(
+    freePerDay: 5,
+    singular: 'AI answer',
+    plural: 'AI answers',
+    countKey: 'daily_ai_explain_count',
+    dateKey: 'last_ai_explain_date',
   );
 
   const UsageKind({
