@@ -59,7 +59,7 @@ class TopicDial extends ConsumerStatefulWidget {
   ConsumerState<TopicDial> createState() => _TopicDialState();
 }
 
-class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProviderStateMixin {
+class _TopicDialState extends ConsumerState<TopicDial> with TickerProviderStateMixin {
   static final _spring = SpringDescription.withDampingRatio(mass: 1, stiffness: 240, ratio: 0.9);
 
   /// Which lane is in the middle, as a (fractional while moving) lane index.
@@ -70,6 +70,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
   /// The whole lane index in the middle, for the detail card below.
   final ValueNotifier<int> _focusIndex = ValueNotifier(0);
   late final AnimationController _settle;
+  late final AnimationController _intro;
 
   bool _positioned = false;
   bool _listMode = false;
@@ -79,11 +80,14 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
   void initState() {
     super.initState();
     _settle = AnimationController.unbounded(vsync: this)..addListener(() => _setFocus(_settle.value));
+    // The nodes sweep in along the arc as the dial opens.
+    _intro = AnimationController(vsync: this, duration: const Duration(milliseconds: 520))..forward();
   }
 
   @override
   void dispose() {
     _settle.dispose();
+    _intro.dispose();
     _focus.dispose();
     _focusIndex.dispose();
     super.dispose();
@@ -107,6 +111,14 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
     }
     _settle.value = _focus.value;
     _settle.animateWith(SpringSimulation(_spring, _focus.value, index.toDouble(), velocity));
+  }
+
+  /// How far [node] is into the opening sweep: the middle first, then
+  /// outwards. 1 once the dial is open, or with animations off.
+  double _introFor(DialNode node) {
+    if (AppMotion.reduced(context)) return 1;
+    final t = Curves.easeOutCubic.transform(_intro.value);
+    return (t * 1.8 - node.delta.abs() * 0.22).clamp(0.0, 1.0);
   }
 
   void _close() => Navigator.of(context).pop();
@@ -244,9 +256,10 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
                       ),
                     ),
                     Positioned.fill(
-                      child: ValueListenableBuilder<double>(
-                        valueListenable: _focus,
-                        builder: (context, focus, _) {
+                      child: AnimatedBuilder(
+                        animation: Listenable.merge([_focus, _intro]),
+                        builder: (context, _) {
+                          final focus = _focus.value;
                           final focusIndex = focus.round().clamp(0, lanes.length - 1);
                           return Stack(
                             clipBehavior: Clip.hardEdge,
@@ -320,7 +333,7 @@ class _TopicDialState extends ConsumerState<TopicDial> with SingleTickerProvider
           behavior: HitTestBehavior.opaque,
           onTap: () => _open(lane),
           child: Opacity(
-            opacity: node.opacity,
+            opacity: node.opacity * _introFor(node),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [

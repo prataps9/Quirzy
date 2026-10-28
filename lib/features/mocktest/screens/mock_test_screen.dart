@@ -9,6 +9,7 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/widgets/option_card.dart';
@@ -126,7 +127,7 @@ class _SetupViewState extends ConsumerState<_SetupView> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mock test')),
       body: pool == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList(count: 4, itemHeight: 70)
           : topics.isEmpty
           ? const _Message(
               icon: Icons.timer_outlined,
@@ -423,11 +424,19 @@ class _RunnerViewState extends State<_RunnerView> {
                     children: [
                       Icon(Icons.timer_outlined, size: 16, color: remaining <= 60 ? p.danger : p.textMuted),
                       const SizedBox(width: 4),
-                      Text(
-                        formatClock(remaining),
-                        style: text.labelLarge!.copyWith(
-                          color: remaining <= 60 ? p.danger : p.text,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+                      // In the last minute each second gives a small beat.
+                      TweenAnimationBuilder<double>(
+                        key: ValueKey(remaining <= 60 ? remaining : -1),
+                        tween: Tween(begin: remaining <= 60 && !AppMotion.reduced(context) ? 1.18 : 1, end: 1),
+                        duration: AppMotion.base,
+                        curve: Curves.easeOut,
+                        builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                        child: Text(
+                          formatClock(remaining),
+                          style: text.labelLarge!.copyWith(
+                            color: remaining <= 60 ? p.danger : p.text,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
                         ),
                       ),
                     ],
@@ -610,93 +619,96 @@ class _ResultView extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Your result'), automaticallyImplyLeading: false),
-      body: FadeRise(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          children: [
-            AppCard(
-              child: Column(
-                children: [
-                  Text('${result.correct} / ${result.total}', style: text.displaySmall),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${result.percent}% · ${formatClock(result.usedSeconds)} used',
-                    style: text.bodyMedium!.copyWith(color: p.textMuted),
-                  ),
-                ],
-              ),
-            ),
-            for (final id in newBadges) ...[
-              const SizedBox(height: 12),
-              AppCard(
-                color: p.accentSoft,
-                borderColor: p.accentText,
-                child: Row(
-                  children: [
-                    Icon(BadgeDef.of(id).icon, color: p.accentText),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('New badge: ${BadgeDef.of(id).title}', style: text.titleSmall),
-                          Text(BadgeDef.of(id).description, style: text.bodySmall),
-                        ],
+      body: Stack(
+        children: [
+          FadeRise(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              children: [
+                AppCard(
+                  child: Column(
+                    children: [
+                      CountUp(value: result.correct, format: (v) => '$v / ${result.total}', style: text.displaySmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${result.percent}% · ${formatClock(result.usedSeconds)} used',
+                        style: text.bodyMedium!.copyWith(color: p.textMuted),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
-            const SizedBox(height: 20),
-            Text('By topic', style: text.titleMedium),
-            const SizedBox(height: 10),
-            for (final t in result.topics)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
+                for (final id in newBadges) ...[
+                  const SizedBox(height: 12),
+                  AppCard(
+                    color: p.accentSoft,
+                    borderColor: p.accentText,
+                    child: Row(
                       children: [
+                        Icon(BadgeDef.of(id).icon, color: p.accentText),
+                        const SizedBox(width: 12),
                         Expanded(
-                          child: Text(t.topic, style: text.bodyMedium, overflow: TextOverflow.ellipsis),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('New badge: ${BadgeDef.of(id).title}', style: text.titleSmall),
+                              Text(BadgeDef.of(id).description, style: text.bodySmall),
+                            ],
+                          ),
                         ),
-                        Text('${t.correct}/${t.total}', style: text.labelLarge),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      child: LinearProgressIndicator(
-                        value: t.share,
-                        minHeight: 6,
-                        color: t.share >= 0.7 ? p.success : (t.share < 0.5 ? p.danger : p.accentText),
-                      ),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Text('By topic', style: text.titleMedium),
+                const SizedBox(height: 10),
+                for (final t in result.topics)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(t.topic, style: text.bodyMedium, overflow: TextOverflow.ellipsis),
+                            ),
+                            Text('${t.correct}/${t.total}', style: text.labelLarge),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        GrowBar(
+                          value: t.share,
+                          color: t.share >= 0.7 ? p.success : (t.share < 0.5 ? p.danger : p.accentText),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            if (weakest != null) ...[
-              const SizedBox(height: 8),
-              AppButton(
-                label: 'Practise ${weakest.topic}',
-                icon: Icons.bolt_rounded,
-                onPressed: () => practise(weakest.topic),
-              ),
-            ],
-            const SizedBox(height: 10),
-            AppButton.secondary(label: 'Done', onPressed: () => Navigator.of(context).pop()),
-            if (toReview.isNotEmpty) ...[
-              const SizedBox(height: 28),
-              Text('Review (${toReview.length})', style: text.titleMedium),
-              const SizedBox(height: 4),
-              Text('These are in your Mistakes notebook too.', style: text.bodySmall!.copyWith(color: p.textMuted)),
-              const SizedBox(height: 10),
-              for (final i in toReview) _ReviewTile(number: i + 1, question: test.questions[i], pick: test.answers[i]),
-            ],
-          ],
-        ),
+                  ),
+                if (weakest != null) ...[
+                  const SizedBox(height: 8),
+                  AppButton(
+                    label: 'Practise ${weakest.topic}',
+                    icon: Icons.bolt_rounded,
+                    onPressed: () => practise(weakest.topic),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                AppButton.secondary(label: 'Done', onPressed: () => Navigator.of(context).pop()),
+                if (toReview.isNotEmpty) ...[
+                  const SizedBox(height: 28),
+                  Text('Review (${toReview.length})', style: text.titleMedium),
+                  const SizedBox(height: 4),
+                  Text('These are in your Mistakes notebook too.', style: text.bodySmall!.copyWith(color: p.textMuted)),
+                  const SizedBox(height: 10),
+                  for (final i in toReview)
+                    _ReviewTile(number: i + 1, question: test.questions[i], pick: test.answers[i]),
+                ],
+              ],
+            ),
+          ),
+          // A burst of confetti for a strong result.
+          Positioned.fill(child: Celebration(play: result.percent >= 80)),
+        ],
       ),
     );
   }

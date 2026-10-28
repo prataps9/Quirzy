@@ -7,6 +7,7 @@ import '../../../shared/services/smart_notification_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../progress/widgets/exam_date_card.dart';
 
 class NotificationSettingsScreen extends ConsumerStatefulWidget {
@@ -159,7 +160,7 @@ class _NotificationSettingsScreenState
     return Scaffold(
       appBar: AppBar(title: const Text('Notifications')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList(count: 6, itemHeight: 64)
           : _loadFailed
           ? _buildLoadError()
           : ListView(

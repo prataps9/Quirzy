@@ -12,6 +12,7 @@ import '../../../shared/services/connectivity_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../../shared/widgets/generation_loading.dart';
 import '../../content/providers/content_providers.dart';
 import '../../content/screens/add_questions_screen.dart';
@@ -321,10 +322,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               showPro: !isPro,
               onProTap: () => openPaywall(context),
             ),
-            const DailyChallengeTile(),
-            const MockTestTile(),
-            const PasteChallengeButton(),
-            const TopicStoriesRow(),
+            const Stagger(index: 0, child: DailyChallengeTile()),
+            const Stagger(index: 1, child: MockTestTile()),
+            const Stagger(index: 2, child: PasteChallengeButton()),
+            const Stagger(index: 3, child: TopicStoriesRow()),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
               child: Column(

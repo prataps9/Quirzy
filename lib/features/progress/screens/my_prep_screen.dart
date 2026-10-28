@@ -6,6 +6,7 @@ import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../../shared/widgets/tab_header.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
@@ -55,7 +56,7 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
   Widget _buildBody(AsyncValue<MyPrepStats> statsAsync) {
     final text = Theme.of(context).textTheme;
     return statsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const SkeletonList(count: 5, itemHeight: 110),
         error: (err, st) => Center(
           child: Padding(
             padding: const EdgeInsets.all(AppSpace.xl),
@@ -82,7 +83,7 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
           onRefresh: () async => ref.invalidate(myPrepStatsProvider),
           child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            children: [
+            children: staggered([
               _StreakCard(stats: stats),
               const SizedBox(height: 12),
               const ExamDateCard(),
@@ -157,7 +158,7 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
                 icon: Icons.share_rounded,
                 onPressed: () => ShareCardService.shareFromKey(_shareCardKey),
               ),
-            ],
+            ]),
           ),
         ),
       );
@@ -206,7 +207,7 @@ class _StreakCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text('${stats.streak}', style: text.displaySmall),
+                    CountUp(value: stats.streak, style: text.displaySmall),
                     const SizedBox(width: 6),
                     Text('day streak', style: text.titleSmall),
                   ],
@@ -276,10 +277,7 @@ class _LevelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(value: stats.level.progress, minHeight: 8),
-          ),
+          GrowBar(value: stats.level.progress, minHeight: 8),
           const SizedBox(height: 6),
           Text(
             '${stats.level.xpIntoLevel} / ${stats.level.xpForNextLevel} XP to the next level',
@@ -314,14 +312,7 @@ class _DailyTargetCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text('${stats.todayAnswered} / $kFeedDailyTarget questions today', style: text.bodySmall),
           const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            child: LinearProgressIndicator(
-              value: stats.dailyTargetProgress,
-              minHeight: 10,
-              color: reached ? p.success : p.accentText,
-            ),
-          ),
+          GrowBar(value: stats.dailyTargetProgress, minHeight: 10, color: reached ? p.success : p.accentText),
         ],
       ),
     );
@@ -685,8 +676,10 @@ class _BadgesSection extends ConsumerWidget {
               spacing: gap,
               runSpacing: 14,
               children: [
-                for (final badge in badges)
-                  SizedBox(
+                for (final (i, badge) in badges.indexed)
+                  Stagger(
+                    index: i,
+                    child: SizedBox(
                     width: width,
                     child: Semantics(
                       button: true,
@@ -714,11 +707,15 @@ class _BadgesSection extends ConsumerWidget {
                                   '${badge.progress}/${badge.def.target}',
                                   style: text.micro.copyWith(color: p.textMuted),
                                 ),
+                              if (badge.earnedAt != null &&
+                                  DateTime.now().difference(badge.earnedAt!) < const Duration(days: 3))
+                                Text('New', style: text.micro.copyWith(color: p.accentText)),
                             ],
                           ),
                         ),
                       ),
                     ),
+                  ),
                   ),
               ],
             );

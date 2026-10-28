@@ -5,6 +5,7 @@ import '../../../shared/theme/app_palette.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../../shared/widgets/generation_loading.dart';
+import '../../../shared/widgets/motion.dart';
 import '../services/study_material_service.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
@@ -235,7 +236,10 @@ class _StudyMaterialEntryScreenState extends ConsumerState<StudyMaterialEntryScr
                           )).toList(),
                         );
                       },
-                      loading: () => const Center(child: CircularProgressIndicator()),
+                      loading: () => const SizedBox(
+                        height: 170,
+                        child: SkeletonList(count: 2, itemHeight: 70, padding: EdgeInsets.zero),
+                      ),
                       error: (_, _) => _buildHistoryError(),
                     ),
                     const SizedBox(height: 24),

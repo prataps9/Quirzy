@@ -7,6 +7,7 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/mistakes_service.dart';
@@ -48,7 +49,7 @@ class _MistakesScreenState extends ConsumerState<MistakesScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mistakes notebook')),
       body: entriesAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const SkeletonList(count: 4, itemHeight: 150),
         error: (e, st) => Center(
           child: TextButton.icon(
             onPressed: () => ref.invalidate(mistakesProvider),
@@ -100,7 +101,11 @@ class _MistakesScreenState extends ConsumerState<MistakesScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                         itemCount: shown.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, i) => _MistakeTile(entry: shown[i], note: notes[shown[i].key]),
+                        itemBuilder: (context, i) => Stagger(
+                          key: ValueKey('$_filter-${shown[i].key}'),
+                          index: i,
+                          child: _MistakeTile(entry: shown[i], note: notes[shown[i].key]),
+                        ),
                       ),
               ),
               if (open.isNotEmpty)

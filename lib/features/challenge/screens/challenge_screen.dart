@@ -11,6 +11,7 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/streak_service.dart';
@@ -46,7 +47,8 @@ class _ChallengeScreenState extends ConsumerState<ChallengeScreen> {
 
   Challenge get _c => widget.challenge;
 
-  int get _score => [for (var i = 0; i < _c.total; i++) i].where((i) => _answers[i] == _c.questions[i].correctIndex).length;
+  int get _score =>
+      [for (var i = 0; i < _c.total; i++) i].where((i) => _answers[i] == _c.questions[i].correctIndex).length;
 
   @override
   void dispose() {
@@ -178,39 +180,48 @@ class _ChallengeScreenState extends ConsumerState<ChallengeScreen> {
         ? "It's a tie."
         : '$name wins this one.';
 
-    return ListView(
+    return Stack(
       key: const ValueKey('result'),
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       children: [
-        FadeRise(
-          child: AppCard(
-            child: Column(
-              children: [
-                Text(verdict, textAlign: TextAlign.center, style: text.titleLarge),
-                const SizedBox(height: 14),
-                Row(
+        ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          children: [
+            FadeRise(
+              child: AppCard(
+                child: Column(
                   children: [
-                    Expanded(child: _ScoreBlock(label: 'You', score: mine, total: _c.total, lead: true)),
-                    if (theirs != null)
-                      Expanded(child: _ScoreBlock(label: name, score: theirs, total: _c.total, lead: false)),
+                    Text(verdict, textAlign: TextAlign.center, style: text.titleLarge),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ScoreBlock(label: 'You', score: mine, total: _c.total, lead: true),
+                        ),
+                        if (theirs != null)
+                          Expanded(
+                            child: _ScoreBlock(label: name, score: theirs, total: _c.total, lead: false),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 16),
+            AppButton(
+              label: 'Share your score',
+              icon: Icons.ios_share_rounded,
+              onPressed: () => shareChallenge(_c.copyWith(from: firstNameOf(ref) ?? 'A friend', score: mine)),
+            ),
+            const SizedBox(height: 10),
+            AppButton.secondary(label: 'Done', onPressed: () => Navigator.of(context).pop()),
+            const SizedBox(height: 24),
+            Text('Answers', style: text.titleMedium),
+            const SizedBox(height: 10),
+            for (var i = 0; i < _c.total; i++) _AnswerTile(number: i + 1, question: _c.questions[i], pick: _answers[i]),
+          ],
         ),
-        const SizedBox(height: 16),
-        AppButton(
-          label: 'Share your score',
-          icon: Icons.ios_share_rounded,
-          onPressed: () => shareChallenge(_c.copyWith(from: firstNameOf(ref) ?? 'A friend', score: mine)),
-        ),
-        const SizedBox(height: 10),
-        AppButton.secondary(label: 'Done', onPressed: () => Navigator.of(context).pop()),
-        const SizedBox(height: 24),
-        Text('Answers', style: text.titleMedium),
-        const SizedBox(height: 10),
-        for (var i = 0; i < _c.total; i++) _AnswerTile(number: i + 1, question: _c.questions[i], pick: _answers[i]),
+        Positioned.fill(child: Celebration(play: theirs != null && mine > theirs)),
       ],
     );
   }
@@ -230,8 +241,17 @@ class _ScoreBlock extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return Column(
       children: [
-        Text('$score/$total', style: text.displaySmall!.copyWith(color: lead ? p.accentText : p.text)),
-        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.bodySmall!.copyWith(color: p.textMuted)),
+        CountUp(
+          value: score,
+          format: (v) => '$v/$total',
+          style: text.displaySmall!.copyWith(color: lead ? p.accentText : p.text),
+        ),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: text.bodySmall!.copyWith(color: p.textMuted),
+        ),
       ],
     );
   }
@@ -259,7 +279,11 @@ class _AnswerTile extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(right ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 18, color: right ? p.success : p.danger),
+                Icon(
+                  right ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                  size: 18,
+                  color: right ? p.success : p.danger,
+                ),
                 const SizedBox(width: 6),
                 Text('Q$number', style: text.micro.copyWith(color: p.textMuted)),
               ],
@@ -272,7 +296,10 @@ class _AnswerTile extends StatelessWidget {
                 picked == null ? 'Not answered' : 'You picked: ${question.options[picked]}',
                 style: text.bodyMedium!.copyWith(color: p.danger),
               ),
-            Text('Answer: ${question.options[question.correctIndex]}', style: text.bodyMedium!.copyWith(color: p.success)),
+            Text(
+              'Answer: ${question.options[question.correctIndex]}',
+              style: text.bodyMedium!.copyWith(color: p.success),
+            ),
             if (question.explanation.trim().isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(question.explanation.trim(), style: text.caption.copyWith(color: p.textMuted)),

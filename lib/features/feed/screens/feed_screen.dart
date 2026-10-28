@@ -13,6 +13,7 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../challenge/models/challenge.dart';
 import '../../challenge/screens/challenge_screen.dart';
 import '../../progress/models/badge.dart';
@@ -1044,31 +1045,38 @@ class _DailyEnd extends ConsumerWidget {
       ];
     }
 
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              daily?.completed == true ? Icons.emoji_events_rounded : Icons.bolt_rounded,
-              size: 56,
-              color: p.accentText,
+    final perfect = daily != null && daily.completed && daily.correct == daily.total;
+    return Stack(
+      children: [
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  daily?.completed == true ? Icons.emoji_events_rounded : Icons.bolt_rounded,
+                  size: 56,
+                  color: p.accentText,
+                ),
+                const SizedBox(height: 18),
+                Text(title, textAlign: TextAlign.center, style: text.titleLarge),
+                const SizedBox(height: 8),
+                Text(
+                  body,
+                  textAlign: TextAlign.center,
+                  style: text.bodyMedium!.copyWith(color: p.textMuted),
+                ),
+                const SizedBox(height: 22),
+                ...actions,
+              ],
             ),
-            const SizedBox(height: 18),
-            Text(title, textAlign: TextAlign.center, style: text.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              body,
-              textAlign: TextAlign.center,
-              style: text.bodyMedium!.copyWith(color: p.textMuted),
-            ),
-            const SizedBox(height: 22),
-            ...actions,
-          ],
+          ),
         ),
-      ),
+        // A full house gets confetti.
+        Positioned.fill(child: Celebration(play: perfect)),
+      ],
     );
   }
 }

@@ -5,6 +5,7 @@ import '../../../shared/appwrite/leaderboard/leaderboard_service.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../feed/services/leaderboard_sync.dart';
 
 /// Leaderboard Screen - one global ranking by lifetime XP.
@@ -91,7 +92,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const SkeletonList(count: 7, itemHeight: 64)
           : RefreshIndicator(
               onRefresh: _loadLeaderboard,
               child: _loadFailed && _topPlayers.isEmpty

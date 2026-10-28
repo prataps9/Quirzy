@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_palette.dart';
+import 'motion.dart';
 
 /// The app's primary call to action: a full-width lime pill with dark text.
 /// Use [AppButton.secondary] for a quieter outlined alternative.
@@ -59,7 +60,10 @@ class AppButton extends StatelessWidget {
     final button = outlined
         ? OutlinedButton(onPressed: enabled ? handlePress : null, child: child)
         : FilledButton(onPressed: enabled ? handlePress : null, child: child);
-    return expanded ? SizedBox(width: double.infinity, child: button) : button;
+    return PressScale(
+      enabled: enabled,
+      child: expanded ? SizedBox(width: double.infinity, child: button) : button,
+    );
   }
 }
 
@@ -86,7 +90,10 @@ class AppCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final shape = BorderRadius.circular(radius);
-    return Material(
+    return PressScale(
+      enabled: onTap != null,
+      pressedScale: 0.98,
+      child: Material(
       color: color ?? p.surface,
       shape: RoundedRectangleBorder(
         borderRadius: shape,
@@ -101,6 +108,7 @@ class AppCard extends StatelessWidget {
                 onTap!();
               },
         child: Padding(padding: padding, child: child),
+      ),
       ),
     );
   }
