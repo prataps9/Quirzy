@@ -10,9 +10,15 @@ wrong, with flashcards, a daily streak and a progress view alongside.
 |---|---|
 | **Practice** | An endless, adaptive *For You* feed. Swipe up for the next card, left for the solution (with Ask AI, notes and save-as-flashcard), right for the topic dial. It mixes multiple-choice questions, True/False, "Remember this?" facts from questions you missed, and due flashcards. A **Daily 5** (same five questions all day, leaning on your weak topics, with an XP bonus for finishing) plus lanes for single topics, weak topics, revision and saved questions, all on the topic dial, which also shows how well each topic is going. Streak, daily goal, combo, XP and a session recap every 15 answers. |
 | **Home** | Generate a new topic with AI (or add your own questions, paste notes, or build a study set) and jump into it. |
-| **My Prep** | Streak, XP and level, per-topic accuracy, exam countdown, leaderboard and a shareable progress card. |
+| **My Prep** | Streak (with a weekly streak freeze), XP and level, per-topic accuracy, exam countdown, the Mistakes notebook, timed mock tests with per-topic results, 14 badges, leaderboard and a shareable progress card. |
 | **Cards** | AI-generated flashcard sets with spaced repetition, favourites and exam-specific suggestions. |
 | **Profile** | Theme, practice-feed settings (auto-scroll, read aloud, sounds), reminders, Pro, privacy and account. |
+
+**Challenge a friend:** share a question or your Daily 5 as a
+`quirzy://challenge?d=…` link. The link carries the questions and your score
+(no server needed); a friend with Quirzy opens it, plays, and sees who won.
+If a chat app doesn't make the link tappable, they can copy the message and
+use "Got a challenge? Paste it" on Home.
 
 Free accounts get 2 AI topics, 1 study set and 3 flashcard sets a day;
 **Quirzy Pro** removes the limits. Practice progress lives on the device, so
