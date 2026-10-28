@@ -45,6 +45,13 @@ class DailyChallengeService {
     await prefs.setString(_key, jsonEncode(challenge.toJson()));
   }
 
+  /// Today's challenge as last saved, without needing the question pool;
+  /// null when none has been picked today.
+  Future<DailyChallenge?> savedToday({DateTime? now}) async {
+    final saved = await _load();
+    return saved != null && saved.date == dateKey(now ?? DateTime.now()) ? saved : null;
+  }
+
   /// Today's challenge from [pool], or null when there is nothing to ask.
   /// Questions that have left the pool since the pick are dropped.
   Future<DailyChallenge?> today(

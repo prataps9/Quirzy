@@ -50,6 +50,19 @@
 
     </LinearLayout>
 
+    <!-- Today's numbers, written by the app -->
+    <TextView
+        android:id="@+id/widget_stats"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/header_row"
+        android:layout_marginTop="10dp"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:text="Open Quirzy to see today's progress"
+        android:textColor="@color/widget_text"
+        android:textSize="13sp" />
+
     <!-- Practice button -->
     <LinearLayout
         android:id="@+id/practice_button"
@@ -65,7 +78,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Practice now"
+            android:text="Practise now"
             android:textColor="@color/widget_on_accent"
             android:textSize="14sp"
             android:textStyle="bold" />

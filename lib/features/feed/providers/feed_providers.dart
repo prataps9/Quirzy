@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../shared/services/home_widget_sync.dart';
 import '../../../shared/services/notification_scheduler.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../../flashcards/services/flashcard_cache.dart';
@@ -988,7 +989,29 @@ class FeedController extends Notifier<FeedState> {
     ref.read(leaderboardSyncProvider).schedule();
     // Today is safe now: move tonight's "streak at risk" alert to tomorrow.
     if (before == 0) unawaited(ref.read(notificationSchedulerProvider).onPractisedToday());
+    unawaited(syncHomeWidget());
     return (firstOfDay: before == 0, goalReached: goalReached);
+  }
+
+  /// Sends the streak, today's answers and Daily 5 progress to the Android
+  /// home-screen widget. Never throws: the widget is a nice-to-have.
+  Future<void> syncHomeWidget() async {
+    try {
+      final today = state.todayAnswered;
+      final streak = await ref.read(streakServiceProvider).getStreak();
+      final daily = await ref.read(dailyChallengeServiceProvider).savedToday();
+      await ref
+          .read(homeWidgetSyncProvider)
+          .update(
+            streak: streak.current,
+            today: today,
+            goal: kFeedDailyTarget,
+            dailyDone: daily?.answered ?? 0,
+            dailyTotal: daily?.total ?? 0,
+          );
+    } catch (e) {
+      // The controller may be gone (signed out) or the widget unavailable.
+    }
   }
 
   /// Shows at most one celebration per answer, most special first.

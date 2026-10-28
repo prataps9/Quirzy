@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon. Each opens a quirzy:// link that
+     DeepLinkService routes inside the app. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="daily"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_daily"
+        android:shortcutShortLabel="@string/shortcut_daily_short"
+        android:shortcutLongLabel="@string/shortcut_daily_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="quirzy://daily"
+            android:targetPackage="com.ps9labs.quirzy"
+            android:targetClass="com.ps9labs.quirzy.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="mocktest"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_mock"
+        android:shortcutShortLabel="@string/shortcut_mock_short"
+        android:shortcutLongLabel="@string/shortcut_mock_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="quirzy://mocktest"
+            android:targetPackage="com.ps9labs.quirzy"
+            android:targetClass="com.ps9labs.quirzy.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="mistakes"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_mistakes"
+        android:shortcutShortLabel="@string/shortcut_mistakes_short"
+        android:shortcutLongLabel="@string/shortcut_mistakes_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="quirzy://mistakes"
+            android:targetPackage="com.ps9labs.quirzy"
+            android:targetClass="com.ps9labs.quirzy.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="practice"
+        android:enabled="true"
+        android:icon="@drawable/shortcut_practice"
+        android:shortcutShortLabel="@string/shortcut_practice_short"
+        android:shortcutLongLabel="@string/shortcut_practice_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="quirzy://practice"
+            android:targetPackage="com.ps9labs.quirzy"
+            android:targetClass="com.ps9labs.quirzy.MainActivity" />
+    </shortcut>
+</shortcuts>

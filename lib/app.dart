@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'features/l10n/app_localizations.dart';
@@ -61,6 +62,12 @@ class _QuirzyAppState extends ConsumerState<QuirzyApp> {
             GlobalCupertinoLocalizations.delegate,
           ],
           supportedLocales: const [Locale('en')],
+          // Screens without an app bar (the feed, the tabs) still get system
+          // bar icons that read on the current theme.
+          builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AppTheme.systemBars(Theme.of(context).brightness),
+            child: child ?? const SizedBox.shrink(),
+          ),
         );
       },
     );

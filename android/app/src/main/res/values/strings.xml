@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_description">Quick access to start quizzes and challenge yourself</string>
+    <string name="widget_description">Your streak, today\'s answers and the Daily 5, one tap from practice</string>
+
+    <!-- App shortcuts (long-press the app icon) -->
+    <string name="shortcut_daily_short">Daily 5</string>
+    <string name="shortcut_daily_long">Play today\'s Daily 5</string>
+    <string name="shortcut_mock_short">Mock test</string>
+    <string name="shortcut_mock_long">Take a mock test</string>
+    <string name="shortcut_mistakes_short">Mistakes</string>
+    <string name="shortcut_mistakes_long">Open your Mistakes notebook</string>
+    <string name="shortcut_practice_short">Practise</string>
+    <string name="shortcut_practice_long">Continue practising</string>
 </resources>

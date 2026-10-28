@@ -2,6 +2,14 @@
 <resources>
     <color name="ic_launcher_background">#0A0A0C</color>
 
+    <!-- Behind Flutter while it starts: the splash colour, so there is no
+         white flash between the splash and the first frame. -->
+    <color name="app_window_background">#0A0A0C</color>
+
+    <!-- App shortcut icons -->
+    <color name="shortcut_background">#C6F432</color>
+    <color name="shortcut_glyph">#0A0A0C</color>
+
     <!-- Widget colors (flat dark surface, lime accent) -->
     <color name="widget_primary">#C6F432</color>
     <color name="widget_secondary">#A0A0AB</color>

@@ -6,6 +6,19 @@ import 'app_palette.dart';
 
 /// The one place the app's Material theme is built, from [AppPalette].
 class AppTheme {
+  /// Edge-to-edge system bars: see-through, with icons that read on the
+  /// app's background.
+  static SystemUiOverlayStyle systemBars(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    return (dark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark).copyWith(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+      systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+    );
+  }
+
   static ThemeData get dark => _build(AppPalette.dark, Brightness.dark);
   static ThemeData get light => _build(AppPalette.light, Brightness.light);
 
@@ -48,10 +61,11 @@ class AppTheme {
       textTheme: textTheme,
       primaryTextTheme: textTheme,
       splashFactory: InkRipple.splashFactory,
-      // Screens fade forward instead of snapping in.
+      // Screens fade forward instead of snapping in. On Android the back
+      // swipe previews the screen behind (predictive back, Android 14+).
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+          TargetPlatform.android: PredictiveBackPageTransitionsBuilder(),
           TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
         },
       ),
@@ -65,7 +79,7 @@ class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         titleTextStyle: textTheme.titleLarge,
-        systemOverlayStyle: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        systemOverlayStyle: AppTheme.systemBars(brightness),
       ),
       cardTheme: CardThemeData(
         color: p.surface,

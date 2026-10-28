@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../shared/providers/app_action_provider.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/notification_scheduler.dart';
 import '../../../shared/services/smart_notification_service.dart';
@@ -18,7 +19,9 @@ import '../../feed/providers/feed_providers.dart';
 import '../../feed/screens/feed_screen.dart';
 import '../../feed/services/leaderboard_sync.dart';
 import '../../flashcards/screens/screens.dart';
+import '../../mocktest/screens/mock_test_screen.dart';
 import '../../onboarding/screens/screens.dart';
+import '../../progress/screens/mistakes_screen.dart';
 import '../../profile/screens/screens.dart';
 import '../../progress/screens/my_prep_screen.dart';
 import 'home_screen.dart';
@@ -49,7 +52,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     _notificationTaps = ref.read(notificationSchedulerProvider).taps.listen(_openFromNotification);
     // A challenge link that arrived before sign-in opens now.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _openPendingChallenge(ref.read(pendingChallengeProvider));
+      if (!mounted) return;
+      _openPendingChallenge(ref.read(pendingChallengeProvider));
+      _openAppAction(ref.read(pendingAppActionProvider));
     });
     _onAppOpen();
   }
@@ -72,6 +77,39 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChallengeScreen(challenge: challenge)));
   }
 
+  /// Opens where an app shortcut points, once.
+  void _openAppAction(AppAction? action) {
+    if (action == null || !mounted) return;
+    ref.read(pendingAppActionProvider.notifier).state = null;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    switch (action) {
+      case AppAction.practice:
+        ref.read(tabIndexProvider.notifier).state = 0;
+      case AppAction.daily:
+        unawaited(_openDaily());
+      case AppAction.mockTest:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MockTestScreen()));
+      case AppAction.mistakes:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MistakesScreen()));
+    }
+  }
+
+  /// Practice, on today's Daily 5 when there is one left to play.
+  Future<void> _openDaily() async {
+    final daily = await ref.read(dailyChallengeProvider.future).catchError((_) => null);
+    if (!mounted) return;
+    if (daily != null && !daily.completed) {
+      unawaited(
+        ref
+            .read(feedControllerProvider.notifier)
+            .switchLane(
+              FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily ${daily.total}', count: daily.total),
+            ),
+      );
+    }
+    ref.read(tabIndexProvider.notifier).state = 0;
+  }
+
   /// Takes the user where a tapped notification points.
   Future<void> _openFromNotification(String payload) async {
     if (!mounted) return;
@@ -83,15 +121,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         unawaited(feed.switchLane(const FeedLane(type: FeedLaneType.revision, id: 'revision', label: 'Revision Vault')));
         tabs.state = 0;
       case NotificationRoute.streak:
-        final daily = await ref.read(dailyChallengeProvider.future).catchError((_) => null);
-        if (daily != null && !daily.completed) {
-          unawaited(
-            feed.switchLane(
-              FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily ${daily.total}', count: daily.total),
-            ),
-          );
-        }
-        tabs.state = 0;
+        await _openDaily();
       case NotificationRoute.exam || NotificationRoute.digest:
         tabs.state = 2;
       default:
@@ -113,6 +143,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     // leaderboard. Both are fire-and-forget and never throw.
     unawaited(ref.read(leaderboardSyncProvider).syncNow());
     unawaited(ref.read(notificationSchedulerProvider).onAppOpen());
+    unawaited(ref.read(feedControllerProvider.notifier).syncHomeWidget());
     final launch = await ref.read(notificationSchedulerProvider).takeLaunchPayload();
     if (launch != null) await _openFromNotification(launch);
   }
@@ -154,6 +185,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       ref.read(feedControllerProvider.notifier).setTabVisible(next == 0);
     });
     ref.listen<IncomingChallenge?>(pendingChallengeProvider, (_, next) => _openPendingChallenge(next));
+    ref.listen<AppAction?>(pendingAppActionProvider, (_, next) => _openAppAction(next));
 
     return PopScope(
       canPop: false,
