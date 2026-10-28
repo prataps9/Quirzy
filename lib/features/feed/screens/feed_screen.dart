@@ -589,7 +589,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
         onOpenTopic: canOpenTopic
             ? () => _controller.switchLane(FeedLane(type: FeedLaneType.topic, id: 'topic:$topic', label: topic))
             : null,
-        onWrongReason: _controller.recordWrongReason,
+        onWrongReason: (reason) => _controller.recordWrongReason(index, reason),
         onTrueFalse: (saysTrue) => _controller.answerTrueFalse(index, saysTrue),
         onFactDone: () => _controller.acknowledgeFact(index),
         onFlip: () => _controller.flipFlashcard(index),

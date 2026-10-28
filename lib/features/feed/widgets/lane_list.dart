@@ -21,6 +21,8 @@ IconData iconForLane(FeedLaneType type) {
       return Icons.history_rounded;
     case FeedLaneType.bookmarks:
       return Icons.bookmark_rounded;
+    case FeedLaneType.mistakes:
+      return Icons.rule_rounded;
   }
 }
 

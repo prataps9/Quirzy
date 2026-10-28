@@ -11,6 +11,7 @@ import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../profile/screens/leaderboard_screen.dart';
 import '../providers/progress_providers.dart';
+import 'mistakes_screen.dart';
 import '../services/share_card_service.dart';
 import '../widgets/exam_date_card.dart';
 import '../widgets/share_card.dart';
@@ -114,6 +115,8 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 12),
+              const _MistakesCard(),
               const SizedBox(height: 16),
               AppButton.secondary(
                 label: 'View leaderboard',
@@ -442,6 +445,61 @@ class _LaneCard extends ConsumerWidget {
           const SizedBox(height: 10),
           Text('$count', style: text.headlineMedium),
           Text(label, style: text.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+/// The Mistakes notebook in one line: how many are left to fix and the slip
+/// the user makes most. Hidden until there is a first mistake.
+class _MistakesCard extends ConsumerWidget {
+  const _MistakesCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final insight = ref.watch(mistakeInsightProvider).value;
+    if (insight == null || insight.total == 0) return const SizedBox.shrink();
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+
+    final title = insight.open == 0
+        ? 'All ${insight.total} mistakes fixed'
+        : '${insight.open} ${insight.open == 1 ? 'mistake' : 'mistakes'} to fix';
+    final detail = insight.topReason != null
+        ? 'Most common slip: ${insight.topReason} (${insight.topReasonPercent}%)'
+        : insight.topTopic != null
+        ? 'Most of them in ${insight.topTopic}'
+        : 'Open your notebook to see what to work on';
+
+    return AppCard(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        Navigator.push(context, MaterialPageRoute(builder: (_) => const MistakesScreen()));
+      },
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: insight.open == 0 ? p.successSoft : p.dangerSoft,
+            ),
+            child: Icon(Icons.rule_rounded, color: insight.open == 0 ? p.success : p.danger),
+          ),
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: text.titleSmall),
+                Text(detail, style: text.bodySmall!.copyWith(color: p.textMuted)),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded, color: p.textMuted),
         ],
       ),
     );

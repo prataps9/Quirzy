@@ -26,6 +26,12 @@ class QuestionNotesService {
     return entry is Map ? (entry['text'] as String? ?? '') : '';
   }
 
+  /// Every note, keyed by question (`PracticeQuestionKeys.engagementKey`).
+  Future<Map<String, String>> allNotes() async => {
+    for (final e in (await _read()).entries)
+      if (e.value is Map && (e.value as Map)['text'] is String) e.key: (e.value as Map)['text'] as String,
+  };
+
   /// Saves [text] (trimmed, capped); an empty note removes it. The oldest
   /// notes go first once there are more than [maxNotes].
   Future<void> setNote(PracticeQuestion q, String text) async {

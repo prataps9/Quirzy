@@ -440,6 +440,7 @@ class _FocusDetail extends ConsumerWidget {
         FeedLaneType.revision => '${lane.count} due for revision',
         FeedLaneType.weakTopics => '${lane.count} ${lane.count == 1 ? 'topic' : 'topics'} to work on',
         FeedLaneType.bookmarks => '${lane.count} saved',
+        FeedLaneType.mistakes => '${lane.count} to fix',
         FeedLaneType.topic => '${lane.count} questions',
       },
       if (mastery != null && mastery!.attempts > 0) ...[

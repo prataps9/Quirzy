@@ -81,9 +81,9 @@ class TopicSummary {
 }
 
 /// The kind of lane a [FeedLane] represents: the adaptive For You feed,
-/// the Daily 5, one topic, weak topics, the revision vault, or saved
-/// questions.
-enum FeedLaneType { forYou, daily, topic, weakTopics, revision, bookmarks }
+/// the Daily 5, one topic, weak topics, the revision vault, saved questions,
+/// or the Mistakes notebook.
+enum FeedLaneType { forYou, daily, topic, weakTopics, revision, bookmarks, mistakes }
 
 /// One entry in the Lane Switcher (swipe-right / lane-chip tap).
 class FeedLane {
@@ -110,6 +110,9 @@ class FeedLane {
   /// Today's Daily 5. Its label and count depend on the day's set, but the id
   /// is always the same.
   static const dailyId = 'daily';
+
+  /// The Mistakes notebook as a lane: the questions still to fix.
+  static const mistakes = FeedLane(type: FeedLaneType.mistakes, id: 'mistakes', label: 'Mistakes');
 
   bool get isInfinite => type == FeedLaneType.forYou;
 

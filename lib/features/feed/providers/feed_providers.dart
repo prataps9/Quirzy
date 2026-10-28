@@ -21,6 +21,7 @@ import '../services/feed_ranker.dart';
 import '../services/feed_revision_service.dart';
 import '../services/feed_stats_service.dart';
 import '../services/leaderboard_sync.dart';
+import '../services/mistakes_service.dart';
 import '../services/practice_content_service.dart';
 import '../services/question_notes_service.dart';
 import '../services/streak_service.dart';
@@ -57,6 +58,17 @@ final savedCardsServiceProvider = Provider<SavedCardsService>((ref) => SavedCard
 final questionNotesServiceProvider = Provider<QuestionNotesService>((ref) => QuestionNotesService());
 final explainServiceProvider = Provider<ExplainService>((ref) => ExplainService());
 final dailyChallengeServiceProvider = Provider<DailyChallengeService>((ref) => DailyChallengeService());
+final mistakesServiceProvider = Provider<MistakesService>((ref) => MistakesService());
+
+/// Every mistake, most recent first, for the notebook screen.
+final mistakesProvider = FutureProvider.autoDispose<List<MistakeEntry>>((ref) {
+  return ref.watch(mistakesServiceProvider).all();
+});
+
+/// The notebook summary for My Prep. Refreshed after every answer.
+final mistakeInsightProvider = FutureProvider<MistakeInsight>((ref) {
+  return ref.watch(mistakesServiceProvider).insight();
+});
 
 /// Today's Daily 5 and how far through it the user is; null when there are
 /// no questions to ask. Re-read when an answer is recorded.
@@ -111,6 +123,7 @@ final feedLanesProvider = FutureProvider<List<FeedLane>>((ref) async {
   final dueCount = await revision.getDueCount();
   final bookmarkCount = await bookmarks.getCount();
   final daily = await ref.watch(dailyChallengeProvider.future);
+  final mistakesOpen = (await ref.watch(mistakeInsightProvider.future)).open;
 
   return [
     FeedLane.forYou,
@@ -118,6 +131,7 @@ final feedLanesProvider = FutureProvider<List<FeedLane>>((ref) async {
       FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily ${daily.total}', count: daily.total),
     if (dueCount > 0)
       FeedLane(type: FeedLaneType.revision, id: 'revision', label: 'Revision Vault', count: dueCount),
+    if (mistakesOpen > 0) FeedLane.mistakes.copyWith(count: mistakesOpen),
     if (weakTopics.isNotEmpty)
       FeedLane(type: FeedLaneType.weakTopics, id: 'weak', label: 'My Weak Topics', count: weakTopics.length),
     if (bookmarkCount > 0)
@@ -456,6 +470,8 @@ class FeedController extends Notifier<FeedState> {
         return ref.read(feedRevisionServiceProvider).getDueQuestions();
       case FeedLaneType.bookmarks:
         return ref.read(feedBookmarkServiceProvider).getBookmarks();
+      case FeedLaneType.mistakes:
+        return ref.read(mistakesServiceProvider).toRetry();
     }
   }
 
@@ -777,6 +793,14 @@ class FeedController extends Notifier<FeedState> {
 
     await ref.read(feedStatsServiceProvider).recordAttempt(question.topic, correct);
     await ref.read(feedRevisionServiceProvider).recordOutcome(question, correct);
+    await ref
+        .read(mistakesServiceProvider)
+        .recordAnswer(
+          question,
+          correct: correct,
+          pick: answered.kind == FeedCardKind.question ? answered.selectedOption : null,
+        );
+    ref.invalidate(mistakeInsightProvider);
     if (state.lane.type == FeedLaneType.daily) await _recordDaily(question, correct);
 
     var leveledUpTo = 0;
@@ -1098,8 +1122,13 @@ class FeedController extends Notifier<FeedState> {
     _engagement.record(question.topicName, EngagementSignal.quickPass);
   }
 
-  Future<void> recordWrongReason(String reason) async {
+  /// Saves why the card at [index] was answered wrong: in the overall tally
+  /// and on that question in the Mistakes notebook.
+  Future<void> recordWrongReason(int index, String reason) async {
     await ref.read(feedStatsServiceProvider).recordWrongReason(reason);
+    if (index < 0 || index >= state.cards.length) return;
+    await ref.read(mistakesServiceProvider).setReason(state.cards[index].question, reason);
+    ref.invalidate(mistakeInsightProvider);
   }
 
   List<PracticeQuestion> similarTo(PracticeQuestion question, {int limit = 3}) {
