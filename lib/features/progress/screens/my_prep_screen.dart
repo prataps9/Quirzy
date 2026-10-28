@@ -11,6 +11,8 @@ import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../profile/screens/leaderboard_screen.dart';
 import '../providers/progress_providers.dart';
+import '../../mocktest/providers/mock_test_providers.dart';
+import '../../mocktest/screens/mock_test_screen.dart';
 import 'mistakes_screen.dart';
 import '../services/share_card_service.dart';
 import '../widgets/exam_date_card.dart';
@@ -117,6 +119,8 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
               ),
               const SizedBox(height: 12),
               const _MistakesCard(),
+              const SizedBox(height: 12),
+              const _MockTestCard(),
               const SizedBox(height: 16),
               AppButton.secondary(
                 label: 'View leaderboard',
@@ -500,6 +504,88 @@ class _MistakesCard extends ConsumerWidget {
             ),
           ),
           Icon(Icons.chevron_right_rounded, color: p.textMuted),
+        ],
+      ),
+    );
+  }
+}
+
+/// Mock tests: the last score and a short history, or an invitation to take
+/// the first one, and a way back into a test left part-way.
+class _MockTestCard extends ConsumerWidget {
+  const _MockTestCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final history = ref.watch(mockHistoryProvider).value ?? const [];
+    final inProgress = ref.watch(mockInProgressProvider).value;
+    final last = history.isEmpty ? null : history.first;
+    final recent = history.take(6).toList().reversed.toList();
+
+    void open() {
+      HapticFeedback.selectionClick();
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const MockTestScreen()));
+    }
+
+    return AppCard(
+      onTap: open,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, color: p.accentText),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Mock tests', style: text.titleMedium)),
+              if (last != null) Text('Last: ${last.correct}/${last.total}', style: text.labelLarge),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            inProgress != null
+                ? 'You have a test in progress: ${inProgress.answeredCount} of ${inProgress.total} answered.'
+                : last == null
+                ? 'Test yourself under exam conditions: one minute a question, answers at the end.'
+                : 'Your last ${recent.length} ${recent.length == 1 ? 'score' : 'scores'}',
+            style: text.bodySmall!.copyWith(color: p.textMuted),
+          ),
+          if (recent.length > 1 && inProgress == null) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 44,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final r in recent)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Semantics(
+                          label: '${r.percent}%',
+                          child: FractionallySizedBox(
+                            heightFactor: (r.percent / 100).clamp(0.08, 1.0),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: r == last ? p.accent : p.surfaceHigh,
+                                borderRadius: BorderRadius.circular(AppRadius.chip / 2),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          AppButton(
+            label: inProgress != null ? 'Resume test' : 'Take a mock test',
+            icon: Icons.timer_outlined,
+            onPressed: open,
+          ),
         ],
       ),
     );
