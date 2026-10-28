@@ -3,10 +3,13 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:quirzy/features/auth/providers/auth_provider.dart';
+import 'package:quirzy/features/challenge/models/challenge.dart';
+import 'package:quirzy/features/challenge/providers/challenge_providers.dart';
 import 'package:quirzy/shared/providers/providers.dart';
 
 /// Deep Link Service for handling OAuth callbacks and app links:
 /// - `quirzy://practice` (home-screen widget) opens the Practice tab
+/// - `quirzy://challenge?d=…` opens a challenge a friend sent
 /// - `appwrite-callback-*` refreshes the auth state
 class DeepLinkService {
   static DeepLinkService? _instance;
@@ -58,6 +61,8 @@ class DeepLinkService {
 
     if (uri.scheme == 'quirzy' && uri.host == 'practice') {
       _openPractice();
+    } else if (ChallengeCodec.isChallenge(uri)) {
+      _openChallenge(uri);
     } else if (uri.scheme.startsWith('appwrite-callback')) {
       // Appwrite OAuth callback
       debugPrint('DeepLink: OAuth callback detected');
@@ -75,6 +80,24 @@ class DeepLinkService {
       ref.read(tabIndexProvider.notifier).state = 0;
     } catch (e) {
       debugPrint('DeepLink: Could not open Practice: $e');
+    }
+  }
+
+  /// Hands a challenge link to the app shell, which opens it once the user
+  /// is signed in (straight away if they already are).
+  void _openChallenge(Uri uri) {
+    final ref = _ref;
+    if (ref == null) return;
+    IncomingChallenge incoming;
+    try {
+      incoming = IncomingChallenge.ok(ChallengeCodec.decode(uri));
+    } on FormatException {
+      incoming = const IncomingChallenge.broken();
+    }
+    try {
+      ref.read(pendingChallengeProvider.notifier).state = incoming;
+    } catch (e) {
+      debugPrint('DeepLink: Could not open challenge: $e');
     }
   }
 

@@ -23,6 +23,20 @@ class NotificationScheduler {
         _stats = stats ?? FeedStatsService(),
         _revision = revision ?? FeedRevisionService();
 
+  /// Payloads (see [NotificationRoute]) of notifications tapped while the
+  /// app is running.
+  Stream<String> get taps => _svc.taps;
+
+  /// The payload of the notification that opened the app, once.
+  Future<String?> takeLaunchPayload() async {
+    try {
+      return await _svc.takeLaunchPayload();
+    } catch (e) {
+      debugPrint('NotificationScheduler: launch payload unavailable: $e');
+      return null;
+    }
+  }
+
   /// Pref keys of the per-type toggles, as used by [reschedule].
   static const srs = 'notif_srs';
   static const streak = 'notif_streak';

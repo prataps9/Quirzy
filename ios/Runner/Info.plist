@@ -49,5 +49,16 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
-	</dict>
+		<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.quirzy.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>quirzy</string>
+			</array>
+		</dict>
+	</array>
+</dict>
 </plist>

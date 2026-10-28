@@ -13,6 +13,8 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../challenge/models/challenge.dart';
+import '../../challenge/screens/challenge_screen.dart';
 import '../../progress/models/badge.dart';
 import '../../progress/services/share_card_service.dart';
 import '../models/daily_challenge.dart';
@@ -329,21 +331,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 
   void _openMyPrep() => ref.read(tabIndexProvider.notifier).state = 2;
 
-  /// Shares a question as an image card, falling back to text if the
-  /// picture can't be made.
+  /// Shares a question as an image card with a challenge link a friend can
+  /// open in Quirzy, falling back to the link alone if the picture can't be
+  /// made.
   Future<void> _share(PracticeQuestion question) async {
+    final challenge = Challenge(from: firstNameOf(ref), questions: [question]);
     final shared = await ShareCardService.shareWidget(
       context,
       QuestionShareCard(question: question),
-      text: 'Can you get this ${question.topicName} question? Practise on Quirzy #Quirzy',
+      text: ChallengeCodec.shareText(challenge),
       fileName: 'quirzy_question.png',
     );
     if (shared) return;
-    await ShareService.shareQuestion(
-      topic: question.topicName,
-      questionText: question.questionText,
-      options: question.options,
-    );
+    await shareChallenge(challenge);
   }
 
   Future<void> _shareRecap(FeedRecap recap) async {
@@ -464,8 +464,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     ),
   );
 
-  Future<void> _shareDaily(DailyChallenge daily) =>
-      ShareService.shareDailyChallenge(correct: daily.correct, total: daily.total);
+  /// Sends today's Daily 5 and the score as a challenge link.
+  Future<void> _shareDaily(DailyChallenge daily) async {
+    final pool = await ref.read(feedQuestionPoolProvider.future);
+    final byKey = {for (final q in pool) q.engagementKey: q};
+    final questions = [for (final key in daily.keys) ?byKey[key]];
+    if (questions.isEmpty) {
+      await ShareService.shareDailyChallenge(correct: daily.correct, total: daily.total);
+      return;
+    }
+    await shareChallenge(Challenge(from: firstNameOf(ref), score: daily.correct, questions: questions));
+  }
 
   Widget _buildBody(_FeedView view, {required bool readAloud}) {
     if (view.loading && view.cardCount == 0) {
@@ -1021,7 +1030,7 @@ class _DailyEnd extends ConsumerWidget {
       final xp = daily.bonusXp;
       body = '${xp == null ? '' : '+$xp XP earned. '}Come back tomorrow for a fresh set.';
       actions = [
-        AppButton(label: 'Share result', icon: Icons.ios_share_rounded, onPressed: () => onShare(daily)),
+        AppButton(label: 'Challenge a friend', icon: Icons.people_alt_rounded, onPressed: () => onShare(daily)),
         const SizedBox(height: 10),
         AppButton.secondary(label: 'Continue in For You', onPressed: onForYou),
       ];

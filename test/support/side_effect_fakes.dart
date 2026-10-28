@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/misc.dart';
 import 'package:quirzy/features/feed/providers/feed_providers.dart';
 import 'package:quirzy/features/feed/models/feed_models.dart';
@@ -26,6 +28,20 @@ class FakeNotificationScheduler extends NotificationScheduler {
 
   @override
   Future<void> onAppOpen() async {}
+
+  /// Payloads to deliver as notification taps.
+  final tapController = StreamController<String>.broadcast();
+  String? launchPayload;
+
+  @override
+  Stream<String> get taps => tapController.stream;
+
+  @override
+  Future<String?> takeLaunchPayload() async {
+    final payload = launchPayload;
+    launchPayload = null;
+    return payload;
+  }
 }
 
 /// Records what would be spoken or played instead of using the plugins.

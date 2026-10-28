@@ -27,6 +27,7 @@ import '../providers/home_stats_provider.dart';
 import '../widgets/home_widgets.dart';
 import '../widgets/daily_challenge_tile.dart';
 import '../widgets/mock_test_tile.dart';
+import '../widgets/paste_challenge_button.dart';
 import '../widgets/topic_stories_row.dart';
 
 /// Home: one clear job — add something to practice. Everything else (your
@@ -322,6 +323,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
             ),
             const DailyChallengeTile(),
             const MockTestTile(),
+            const PasteChallengeButton(),
             const TopicStoriesRow(),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),

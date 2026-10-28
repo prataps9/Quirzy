@@ -43,10 +43,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="appwrite-callback-695be801003d58b523fc" />
             </intent-filter>
-            <!-- In-app links, e.g. the home-screen widget's quirzy://practice -->
+            <!-- quirzy:// links: the home-screen widget's quirzy://practice, and
+                 challenge links a friend shares (BROWSABLE so chat apps and
+                 browsers can open them). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="quirzy" />
             </intent-filter>
         </activity>

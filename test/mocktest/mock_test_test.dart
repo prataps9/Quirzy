@@ -148,7 +148,7 @@ void main() {
     testWidgets('no right or wrong is shown during the test', (tester) async {
       await pumpScreen(tester);
       await startTenQuestions(tester);
-      expect(find.text('Question 1 of 10'), findsOneWidget);
+      expect(find.text('1 of 10'), findsOneWidget);
       expect(find.text('10:00'), findsOneWidget);
 
       await tester.tap(find.text('B').first);
@@ -160,7 +160,7 @@ void main() {
       for (var i = 0; i < 4; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expect(find.text('Question 2 of 10'), findsOneWidget);
+      expect(find.text('2 of 10'), findsOneWidget);
     });
 
     testWidgets('running out of time submits the test', (tester) async {
@@ -187,7 +187,7 @@ void main() {
       for (var i = 0; i < 5; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expect(find.text('Question 3 of 10'), findsOneWidget);
+      expect(find.text('3 of 10'), findsOneWidget);
     });
   });
 }

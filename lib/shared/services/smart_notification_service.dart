@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -14,6 +16,16 @@ class _NIds {
   static const int weeklyDigest = 400;
   static const int reEngagement = 500;
   static const int studyTime = 700;
+}
+
+/// Where tapping a notification should take the user (its payload).
+class NotificationRoute {
+  static const revision = 'revision';
+  static const streak = 'streak';
+  static const exam = 'exam';
+  static const digest = 'digest';
+  static const comeback = 'comeback';
+  static const study = 'study';
 }
 
 // Notification channel IDs
@@ -35,6 +47,22 @@ class SmartNotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
+  final _taps = StreamController<String>.broadcast();
+  String? _launchPayload;
+  bool _launchTaken = false;
+
+  /// Payloads of notifications tapped while the app is running.
+  Stream<String> get taps => _taps.stream;
+
+  /// The payload of the notification that launched the app, once; null if
+  /// it wasn't opened from a notification.
+  Future<String?> takeLaunchPayload() async {
+    await _ensureReady();
+    if (_launchTaken) return null;
+    _launchTaken = true;
+    return _launchPayload;
+  }
+
   // ── Init ───────────────────────────────────────────────────────────────────
 
   Future<void> init() async {
@@ -51,7 +79,17 @@ class SmartNotificationService {
 
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload != null && payload.isNotEmpty) _taps.add(payload);
+      },
     );
+    try {
+      final launch = await _plugin.getNotificationAppLaunchDetails();
+      if (launch?.didNotificationLaunchApp ?? false) _launchPayload = launch!.notificationResponse?.payload;
+    } catch (e) {
+      debugPrint('SmartNotificationService: launch details unavailable: $e');
+    }
     _ready = true;
   }
 
@@ -123,6 +161,7 @@ class SmartNotificationService {
           'Spaced repetition review reminders'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
+      payload: NotificationRoute.revision,
     );
   }
 
@@ -166,6 +205,7 @@ class SmartNotificationService {
       _details(_Channels.streak, 'Streak Protection',
           'Alerts when your daily streak is at risk'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: NotificationRoute.streak,
     );
   }
 
@@ -180,6 +220,7 @@ class SmartNotificationService {
       'Your $lostStreak-day streak ended. Start fresh today!',
       _details(_Channels.streak, 'Streak Protection',
           'Alerts when your daily streak is at risk'),
+      payload: NotificationRoute.streak,
     );
   }
 
@@ -221,6 +262,7 @@ class SmartNotificationService {
       _details(_Channels.exam, 'Exam Countdown',
           'Weekly countdown to your exam date'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: NotificationRoute.exam,
     );
   }
 
@@ -259,6 +301,7 @@ class SmartNotificationService {
           'Sunday summary of your study activity'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+      payload: NotificationRoute.digest,
     );
   }
 
@@ -289,6 +332,7 @@ class SmartNotificationService {
       _details(_Channels.reEngage, 'Re-engagement',
           'Gentle nudges after inactivity'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: NotificationRoute.comeback,
     );
   }
 
@@ -322,6 +366,7 @@ class SmartNotificationService {
       _details(_Channels.study, 'Study Time', 'Daily study reminders'),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       matchDateTimeComponents: DateTimeComponents.time,
+      payload: NotificationRoute.study,
     );
   }
 

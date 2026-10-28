@@ -405,7 +405,8 @@ class _RunnerViewState extends State<_RunnerView> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Question ${_test.current + 1} of ${_test.total}'),
+          // Short, so it fits beside the timer and buttons on a small phone.
+          title: Text('${_test.current + 1} of ${_test.total}'),
           actions: [
             Center(
               child: Semantics(

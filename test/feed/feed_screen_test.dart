@@ -556,7 +556,7 @@ void main() {
 
       expect(find.text('Daily 5 done: 5 of 5 right'), findsOneWidget);
       expect(find.textContaining('+25 XP earned'), findsOneWidget);
-      expect(find.text('Share result'), findsOneWidget);
+      expect(find.text('Challenge a friend'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await _tearDown(tester);
     });

@@ -7,9 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/notification_scheduler.dart';
+import '../../../shared/services/smart_notification_service.dart';
 import '../../../shared/theme/app_motion.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/quirzy_navigation_bar.dart';
+import '../../challenge/providers/challenge_providers.dart';
+import '../../challenge/screens/challenge_screen.dart';
+import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/screens/feed_screen.dart';
 import '../../feed/services/leaderboard_sync.dart';
@@ -36,12 +40,63 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   final Set<int> _builtTabs = {0};
   DateTime? _lastBackPress;
+  StreamSubscription<String>? _notificationTaps;
 
   @override
   void initState() {
     super.initState();
     _builtTabs.add(ref.read(tabIndexProvider));
+    _notificationTaps = ref.read(notificationSchedulerProvider).taps.listen(_openFromNotification);
+    // A challenge link that arrived before sign-in opens now.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openPendingChallenge(ref.read(pendingChallengeProvider));
+    });
     _onAppOpen();
+  }
+
+  @override
+  void dispose() {
+    _notificationTaps?.cancel();
+    super.dispose();
+  }
+
+  /// Opens a challenge from a link (or says the link was broken), once.
+  void _openPendingChallenge(IncomingChallenge? incoming) {
+    if (incoming == null || !mounted) return;
+    ref.read(pendingChallengeProvider.notifier).state = null;
+    final challenge = incoming.challenge;
+    if (challenge == null) {
+      showAppSnack(context, "That challenge link doesn't work. Ask your friend to send it again.");
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => ChallengeScreen(challenge: challenge)));
+  }
+
+  /// Takes the user where a tapped notification points.
+  Future<void> _openFromNotification(String payload) async {
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    final feed = ref.read(feedControllerProvider.notifier);
+    final tabs = ref.read(tabIndexProvider.notifier);
+    switch (payload) {
+      case NotificationRoute.revision:
+        unawaited(feed.switchLane(const FeedLane(type: FeedLaneType.revision, id: 'revision', label: 'Revision Vault')));
+        tabs.state = 0;
+      case NotificationRoute.streak:
+        final daily = await ref.read(dailyChallengeProvider.future).catchError((_) => null);
+        if (daily != null && !daily.completed) {
+          unawaited(
+            feed.switchLane(
+              FeedLane(type: FeedLaneType.daily, id: FeedLane.dailyId, label: 'Daily ${daily.total}', count: daily.total),
+            ),
+          );
+        }
+        tabs.state = 0;
+      case NotificationRoute.exam || NotificationRoute.digest:
+        tabs.state = 2;
+      default:
+        tabs.state = 0;
+    }
   }
 
   Future<void> _onAppOpen() async {
@@ -58,6 +113,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     // leaderboard. Both are fire-and-forget and never throw.
     unawaited(ref.read(leaderboardSyncProvider).syncNow());
     unawaited(ref.read(notificationSchedulerProvider).onAppOpen());
+    final launch = await ref.read(notificationSchedulerProvider).takeLaunchPayload();
+    if (launch != null) await _openFromNotification(launch);
   }
 
   Widget _tab(int index) {
@@ -96,6 +153,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     ref.listen<int>(tabIndexProvider, (_, next) {
       ref.read(feedControllerProvider.notifier).setTabVisible(next == 0);
     });
+    ref.listen<IncomingChallenge?>(pendingChallengeProvider, (_, next) => _openPendingChallenge(next));
 
     return PopScope(
       canPop: false,
