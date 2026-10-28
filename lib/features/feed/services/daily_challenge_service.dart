@@ -100,9 +100,26 @@ class DailyChallengeService {
     return updated;
   }
 
+  static const _playedKey = 'daily_challenge_days_played';
+  static const _perfectKey = 'daily_challenge_days_perfect';
+
+  /// Pays out a finished challenge (once) and counts the day towards the
+  /// Daily 5 history used by badges.
   Future<DailyChallenge> saveBonus(DailyChallenge challenge, int xp) async {
     final updated = challenge.copyWith(bonusXp: xp);
     await _save(updated);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_playedKey, (prefs.getInt(_playedKey) ?? 0) + 1);
+    if (challenge.total > 0 && challenge.correct == challenge.total) {
+      await prefs.setInt(_perfectKey, (prefs.getInt(_perfectKey) ?? 0) + 1);
+    }
     return updated;
+  }
+
+  /// Days the Daily 5 was finished, and days it was finished with every
+  /// answer right.
+  Future<({int played, int perfect})> history() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (played: prefs.getInt(_playedKey) ?? 0, perfect: prefs.getInt(_perfectKey) ?? 0);
   }
 }

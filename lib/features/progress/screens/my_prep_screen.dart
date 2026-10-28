@@ -13,6 +13,9 @@ import '../../profile/screens/leaderboard_screen.dart';
 import '../providers/progress_providers.dart';
 import '../../mocktest/providers/mock_test_providers.dart';
 import '../../mocktest/screens/mock_test_screen.dart';
+import '../../feed/services/streak_service.dart';
+import '../models/badge.dart';
+import '../providers/badge_providers.dart';
 import 'mistakes_screen.dart';
 import '../services/share_card_service.dart';
 import '../widgets/exam_date_card.dart';
@@ -121,6 +124,8 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
               const _MistakesCard(),
               const SizedBox(height: 12),
               const _MockTestCard(),
+              const SizedBox(height: 24),
+              const _BadgesSection(),
               const SizedBox(height: 16),
               AppButton.secondary(
                 label: 'View leaderboard',
@@ -208,6 +213,27 @@ class _StreakCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(status, style: text.bodySmall),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final ready = ref.watch(streakProvider).value?.freezeReady;
+                    if (ready == null) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Row(
+                        children: [
+                          Icon(Icons.ac_unit_rounded, size: 14, color: ready ? p.accentText : p.textMuted),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              ready ? 'Streak freeze ready: one missed day is forgiven' : 'Streak freeze used this week',
+                              style: text.bodySmall!.copyWith(color: ready ? p.accentText : p.textMuted),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 if (stats.bestStreak > stats.streak) ...[
                   const SizedBox(height: 2),
                   Text(stats.bestStreak == 1 ? 'Best: 1 day' : 'Best: ${stats.bestStreak} days', style: text.bodySmall),
@@ -588,6 +614,139 @@ class _MockTestCard extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Badges: earned ones in colour, the rest greyed with how far along you
+/// are. Tap one for what it takes.
+class _BadgesSection extends ConsumerWidget {
+  const _BadgesSection();
+
+  void _details(BuildContext context, BadgeStatus badge) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final at = badge.earnedAt;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _BadgeIcon(badge: badge, size: 72),
+              const SizedBox(height: 14),
+              Text(badge.def.title, style: text.titleLarge),
+              const SizedBox(height: 6),
+              Text(badge.def.description, textAlign: TextAlign.center, style: text.bodyMedium),
+              const SizedBox(height: 14),
+              if (at != null)
+                Text('Earned ${at.day}/${at.month}/${at.year}', style: text.bodySmall!.copyWith(color: p.accentText))
+              else ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  child: LinearProgressIndicator(value: badge.progress / badge.def.target, minHeight: 6),
+                ),
+                const SizedBox(height: 6),
+                Text('${badge.progress} / ${badge.def.target}', style: text.bodySmall),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
+    final text = Theme.of(context).textTheme;
+    final badges = ref.watch(badgeStatusesProvider).value;
+    if (badges == null) return const SizedBox.shrink();
+    final earned = badges.where((b) => b.earned).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Badges', style: text.titleMedium)),
+            Text('$earned of ${badges.length}', style: text.labelLarge!.copyWith(color: p.textMuted)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const perRow = 4;
+            const gap = 10.0;
+            final width = (constraints.maxWidth - gap * (perRow - 1)) / perRow;
+            return Wrap(
+              spacing: gap,
+              runSpacing: 14,
+              children: [
+                for (final badge in badges)
+                  SizedBox(
+                    width: width,
+                    child: Semantics(
+                      button: true,
+                      label:
+                          '${badge.def.title}, ${badge.earned ? 'earned' : '${badge.progress} of ${badge.def.target}'}',
+                      excludeSemantics: true,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(AppRadius.control),
+                        onTap: () => _details(context, badge),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            children: [
+                              _BadgeIcon(badge: badge, size: 52),
+                              const SizedBox(height: 6),
+                              Text(
+                                badge.def.title,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelSmall!.copyWith(color: badge.earned ? p.text : p.textMuted),
+                              ),
+                              if (!badge.earned && badge.def.target > 1)
+                                Text(
+                                  '${badge.progress}/${badge.def.target}',
+                                  style: text.micro.copyWith(color: p.textMuted),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _BadgeIcon extends StatelessWidget {
+  final BadgeStatus badge;
+  final double size;
+
+  const _BadgeIcon({required this.badge, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: badge.earned ? p.accent : p.surfaceHigh,
+        border: Border.all(color: badge.earned ? p.accent : p.border),
+      ),
+      child: Icon(badge.def.icon, size: size * 0.48, color: badge.earned ? p.onAccent : p.textMuted),
     );
   }
 }

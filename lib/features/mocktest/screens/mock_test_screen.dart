@@ -12,6 +12,8 @@ import '../../../shared/widgets/app_widgets.dart';
 import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/widgets/option_card.dart';
+import '../../progress/models/badge.dart';
+import '../../progress/providers/badge_providers.dart';
 import '../models/mock_test.dart';
 import '../providers/mock_test_providers.dart';
 import '../services/mock_test_service.dart';
@@ -38,6 +40,7 @@ class _MockTestScreenState extends ConsumerState<MockTestScreen> {
   _Phase _phase = _Phase.setup;
   MockTest? _test;
   MockResult? _result;
+  List<BadgeId> _newBadges = const [];
   bool _submitting = false;
 
   MockTestService get _service => ref.read(mockTestServiceProvider);
@@ -55,11 +58,14 @@ class _MockTestScreenState extends ConsumerState<MockTestScreen> {
     if (_submitting) return;
     _submitting = true;
     final result = await _service.finish(test);
+    final badges = await ref.read(badgeServiceProvider).check();
     if (!mounted) return;
     refreshAfterMockTest(ref);
+    ref.invalidate(badgeStatusesProvider);
     HapticFeedback.mediumImpact();
     setState(() {
       _result = result;
+      _newBadges = badges;
       _test = test;
       _phase = _Phase.result;
       _submitting = false;
@@ -76,7 +82,7 @@ class _MockTestScreenState extends ConsumerState<MockTestScreen> {
         onSave: _service.saveInProgress,
         onSubmit: _submit,
       ),
-      _Phase.result => _ResultView(test: _test!, result: _result!),
+      _Phase.result => _ResultView(test: _test!, result: _result!, newBadges: _newBadges),
     };
   }
 }
@@ -579,8 +585,9 @@ class _QuestionGrid extends StatelessWidget {
 class _ResultView extends ConsumerWidget {
   final MockTest test;
   final MockResult result;
+  final List<BadgeId> newBadges;
 
-  const _ResultView({required this.test, required this.result});
+  const _ResultView({required this.test, required this.result, this.newBadges = const []});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -618,6 +625,28 @@ class _ResultView extends ConsumerWidget {
                 ],
               ),
             ),
+            for (final id in newBadges) ...[
+              const SizedBox(height: 12),
+              AppCard(
+                color: p.accentSoft,
+                borderColor: p.accentText,
+                child: Row(
+                  children: [
+                    Icon(BadgeDef.of(id).icon, color: p.accentText),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('New badge: ${BadgeDef.of(id).title}', style: text.titleSmall),
+                          Text(BadgeDef.of(id).description, style: text.bodySmall),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             Text('By topic', style: text.titleMedium),
             const SizedBox(height: 10),

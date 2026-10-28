@@ -133,6 +133,7 @@ class SmartNotificationService {
   Future<void> scheduleStreakProtection({
     required int currentStreak,
     required bool studiedToday,
+    bool freezeReady = false,
   }) async {
     await _ensureReady();
     await _plugin.cancel(_NIds.streakWarning);
@@ -151,9 +152,11 @@ class SmartNotificationService {
       fireAt = tz.TZDateTime(tz.local, now.year, now.month, now.day + 1, 21);
     }
 
-    final body = currentStreak > 1
-        ? 'Your $currentStreak-day streak ends at midnight. A quick practice keeps it going.'
-        : 'Start your streak today — just 5 minutes of practice.';
+    final body = currentStreak <= 1
+        ? 'Start your streak today — just 5 minutes of practice.'
+        : freezeReady
+        ? "Practise today to keep your $currentStreak-day streak. Miss it and this week's streak freeze steps in, once."
+        : 'Your $currentStreak-day streak ends at midnight. A quick practice keeps it going.';
 
     await _plugin.zonedSchedule(
       _NIds.streakWarning,

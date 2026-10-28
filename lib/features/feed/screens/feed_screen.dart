@@ -13,6 +13,7 @@ import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../progress/models/badge.dart';
 import '../../progress/services/share_card_service.dart';
 import '../models/daily_challenge.dart';
 import '../models/feed_models.dart';
@@ -881,6 +882,16 @@ class _RewardBanner extends StatelessWidget {
         '${reward.value} questions today. Nice work.',
       ),
       FeedRewardKind.levelUp => (Icons.military_tech_rounded, p.accentText, 'Level ${reward.value} reached!', null),
+      FeedRewardKind.freezeUsed => (
+        Icons.ac_unit_rounded,
+        p.accentText,
+        'Streak freeze used',
+        'It kept your ${reward.value}-day streak going. You get a new one next week.',
+      ),
+      FeedRewardKind.badge => () {
+        final badge = BadgeDef.catalog[reward.value.clamp(0, BadgeDef.catalog.length - 1)];
+        return (badge.icon, p.accentText, 'New badge: ${badge.title}', badge.description);
+      }(),
     };
 
     return Material(

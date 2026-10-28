@@ -12,11 +12,10 @@ class StreakInfo {
   final int best;
   final bool practisedToday;
 
-  const StreakInfo({
-    required this.current,
-    required this.best,
-    required this.practisedToday,
-  });
+  /// This week's free streak freeze hasn't been used yet.
+  final bool freezeReady;
+
+  const StreakInfo({required this.current, required this.best, required this.practisedToday, this.freezeReady = false});
 
   static const none = StreakInfo(current: 0, best: 0, practisedToday: false);
 
@@ -31,10 +30,20 @@ class StreakInfo {
 /// counts if at least one question was answered or revealed, or one
 /// flashcard was reviewed; a streak stays alive until the end of the
 /// following day.
+///
+/// Streak freeze: once a week, a single missed day is forgiven. When the
+/// streak is read and the user missed only yesterday, yesterday is recorded
+/// as frozen (if this week's freeze is unused) and counts as practised. Two
+/// missed days in a row still end the streak.
 class StreakService {
   StreakService({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
 
   static const lookbackDays = 400;
+
+  static const _frozenKey = 'streak_frozen_days';
+
+  /// The streak a freeze just saved, waiting to be announced once.
+  static const _announceKey = 'streak_freeze_announce';
 
   final DateTime Function() _clock;
 
@@ -69,14 +78,66 @@ class StreakService {
     return total;
   }
 
-  Future<StreakInfo> getStreak() async {
+  static DateTime _weekStart(DateTime day) => DateTime(day.year, day.month, day.day - (day.weekday - 1));
+
+  Set<String> _frozen(SharedPreferences prefs) => (prefs.getStringList(_frozenKey) ?? const []).toSet();
+
+  /// Whether a freeze has been used in the week (Monday to Sunday) of [day].
+  bool _weekFrozen(Set<String> frozen, DateTime day) {
+    final start = _weekStart(day);
+    for (var i = 0; i < 7; i++) {
+      if (frozen.contains(_date(DateTime(start.year, start.month, start.day + i)))) return true;
+    }
+    return false;
+  }
+
+  /// Uses this week's freeze on yesterday when it is the only day missed,
+  /// and returns the streak it saved; null when nothing needed saving or the
+  /// freeze for that week is already used.
+  Future<int?> applyFreezeIfNeeded() async {
     final prefs = await SharedPreferences.getInstance();
     final now = _clock();
+    final frozen = _frozen(prefs);
+    DateTime day(int ago) => DateTime(now.year, now.month, now.day - ago);
+    bool active(int ago) =>
+        (prefs.getInt(countKey(day(ago))) ?? 0) > 0 ||
+        (prefs.getInt(flashcardKey(day(ago))) ?? 0) > 0 ||
+        frozen.contains(_date(day(ago)));
+
+    if (active(1) || !active(2)) return null;
+    final yesterday = day(1);
+    if (_weekFrozen(frozen, yesterday)) return null;
+
+    final kept = ([...frozen, _date(yesterday)]..sort()).reversed.take(60).toList();
+    await prefs.setStringList(_frozenKey, kept);
+    frozen.add(_date(yesterday));
+    var saved = 0;
+    for (var i = 1; i < lookbackDays && active(i); i++) {
+      saved++;
+    }
+    await prefs.setInt(_announceKey, saved);
+    return saved;
+  }
+
+  /// The streak a freeze saved since the last call, once; null otherwise.
+  Future<int?> takeFreezeAnnouncement() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getInt(_announceKey);
+    if (saved != null) await prefs.remove(_announceKey);
+    return saved;
+  }
+
+  Future<StreakInfo> getStreak() async {
+    await applyFreezeIfNeeded();
+    final prefs = await SharedPreferences.getInstance();
+    final now = _clock();
+    final frozen = _frozen(prefs);
 
     bool practised(int daysAgo) {
       final day = DateTime(now.year, now.month, now.day - daysAgo);
       return (prefs.getInt(countKey(day)) ?? 0) > 0 ||
-          (prefs.getInt(flashcardKey(day)) ?? 0) > 0;
+          (prefs.getInt(flashcardKey(day)) ?? 0) > 0 ||
+          frozen.contains(_date(day));
     }
 
     final practisedToday = practised(0);
@@ -96,6 +157,7 @@ class StreakService {
       current: current,
       best: math.max(best, current),
       practisedToday: practisedToday,
+      freezeReady: !_weekFrozen(frozen, now),
     );
   }
 }

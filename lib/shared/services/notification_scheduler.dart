@@ -61,6 +61,7 @@ class NotificationScheduler {
       await _svc.scheduleStreakProtection(
         currentStreak: info.current,
         studiedToday: true,
+        freezeReady: info.freezeReady,
       );
     });
   }
@@ -107,6 +108,7 @@ class NotificationScheduler {
     return _svc.scheduleStreakProtection(
       currentStreak: info.current,
       studiedToday: info.practisedToday,
+      freezeReady: info.freezeReady,
     );
   }
 

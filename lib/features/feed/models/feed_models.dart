@@ -362,7 +362,18 @@ const int kFeedComboBonusXp = 10;
 /// A combo milestone fires every this many correct answers in a row.
 const int kFeedComboMilestone = 5;
 
-enum FeedRewardKind { streak, comboMilestone, dailyGoal, levelUp }
+enum FeedRewardKind {
+  streak,
+  comboMilestone,
+  dailyGoal,
+  levelUp,
+
+  /// The weekly streak freeze covered a missed day; value is the streak kept.
+  freezeUsed,
+
+  /// A badge was earned; value is its index in `BadgeDef.catalog`.
+  badge,
+}
 
 /// A celebration the feed screen should show once. [id] changes for every
 /// new reward so the screen can tell a new one from the one it showed.
@@ -370,7 +381,8 @@ class FeedReward {
   final int id;
   final FeedRewardKind kind;
 
-  /// Streak days, combo count, goal size or new level, depending on [kind].
+  /// Streak days, combo count, goal size, new level or badge, depending on
+  /// [kind].
   final int value;
 
   const FeedReward({required this.id, required this.kind, required this.value});

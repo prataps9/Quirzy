@@ -45,11 +45,42 @@ void main() {
     expect(info.atRisk, isTrue);
   });
 
-  test('missing a whole day resets the streak', () async {
+  test('missing one day is forgiven by the weekly streak freeze', () async {
     await practise([2, 3, 4]);
+    final info = await service.getStreak();
+    expect(info.current, 4, reason: 'yesterday is frozen and counts');
+    expect(info.atRisk, isTrue);
+    expect(info.freezeReady, isFalse, reason: 'used this week');
+    expect(await service.takeFreezeAnnouncement(), 4);
+    expect(await service.takeFreezeAnnouncement(), isNull, reason: 'announced once');
+  });
+
+  test('missing two days in a row still resets the streak', () async {
+    await practise([3, 4, 5]);
     final info = await service.getStreak();
     expect(info.current, 0);
     expect(info.best, 3);
+    expect(info.freezeReady, isTrue);
+  });
+
+  test('only one freeze a week: a second miss that week resets the streak', () async {
+    // Wednesday 7 Oct, missed Tuesday 6 Oct. The freeze used on 30 Sep was
+    // last week, so this week's freeze saves the streak.
+    final later = StreakService(clock: () => DateTime(2026, 10, 7, 9));
+    SharedPreferences.setMockInitialValues({
+      StreakService.countKey(DateTime(2026, 10, 5)): 1,
+      StreakService.countKey(DateTime(2026, 10, 4)): 1,
+      'streak_frozen_days': ['2026-09-30'],
+    });
+    expect((await later.getStreak()).current, 3);
+
+    // Same week, already frozen on Monday 5 Oct: missing Tuesday breaks it.
+    SharedPreferences.setMockInitialValues({
+      StreakService.countKey(DateTime(2026, 10, 4)): 1,
+      StreakService.countKey(DateTime(2026, 10, 3)): 1,
+      'streak_frozen_days': ['2026-10-05'],
+    });
+    expect((await later.getStreak()).current, 0);
   });
 
   test('a gap ends the run and best remembers the longer one', () async {

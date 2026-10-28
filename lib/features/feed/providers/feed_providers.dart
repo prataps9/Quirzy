@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../shared/services/notification_scheduler.dart';
 import '../../home/providers/home_stats_provider.dart';
 import '../../flashcards/services/flashcard_cache.dart';
+import '../../progress/models/badge.dart';
+import '../../progress/providers/badge_providers.dart';
 import '../../flashcards/services/saved_cards_service.dart';
 import '../../flashcards/services/srs_service.dart';
 import '../models/daily_challenge.dart';
@@ -239,6 +241,11 @@ class FeedController extends Notifier<FeedState> {
   int _answersSinceRecap = 0;
 
   int _nextUid = 0;
+
+  /// Badges are checked at most this often while answering (they can only
+  /// be earned by doing things, and checking reads a lot of history).
+  static const _badgeCheckEvery = Duration(seconds: 15);
+  DateTime? _lastBadgeCheck;
   int _rewardId = 0;
   int? _activeIndex;
 
@@ -294,6 +301,13 @@ class FeedController extends Notifier<FeedState> {
       if (state.cards.isEmpty && !lane.isInfinite) {
         await switchLane(FeedLane.forYou);
       }
+
+      // Reading the streak uses this week's freeze if yesterday was missed;
+      // say so once.
+      final streaks = ref.read(streakServiceProvider);
+      await streaks.getStreak();
+      final saved = await streaks.takeFreezeAnnouncement();
+      if (saved != null) _emitReward(FeedRewardKind.freezeUsed, saved);
     } catch (e) {
       state = state.copyWith(loading: false, error: e.toString());
     }
@@ -993,7 +1007,25 @@ class FeedController extends Notifier<FeedState> {
     } else if (firstOfDay) {
       final streak = await ref.read(streakServiceProvider).getStreak();
       _emitReward(FeedRewardKind.streak, streak.current);
+    } else {
+      final badge = await _checkBadges();
+      if (badge != null) _emitReward(FeedRewardKind.badge, BadgeDef.catalog.indexWhere((b) => b.id == badge));
     }
+  }
+
+  /// A badge earned since the last check, if any (and saves it). Throttled,
+  /// except right after the Daily 5 is finished; a badge reached in between
+  /// is simply announced at the next check.
+  Future<BadgeId?> _checkBadges() async {
+    final now = DateTime.now();
+    final dailyDone = state.lane.type == FeedLaneType.daily && (state.daily?.completed ?? false);
+    final last = _lastBadgeCheck;
+    if (!dailyDone && last != null && now.difference(last) < _badgeCheckEvery) return null;
+    _lastBadgeCheck = now;
+    final fresh = await ref.read(badgeServiceProvider).check();
+    if (fresh.isEmpty) return null;
+    ref.invalidate(badgeStatusesProvider);
+    return fresh.first;
   }
 
   void _emitReward(FeedRewardKind kind, int value) {

@@ -241,7 +241,9 @@ void main() {
       final firstId = container.read(feedControllerProvider).reward!.id;
 
       await answer(container, 1);
-      expect(container.read(feedControllerProvider).reward?.id, firstId);
+      final after = container.read(feedControllerProvider).reward!;
+      // Another celebration may follow (a badge), but never the goal again.
+      expect(after.id == firstId || after.kind != FeedRewardKind.dailyGoal, isTrue);
     });
   });
 
