@@ -306,7 +306,7 @@ void main() {
       expect(await QuestionNotesService().noteFor(pool.first), 'Objectives');
       expect(find.textContaining('Objectives', findRichText: true), findsOneWidget);
 
-      await tester.tap(find.text('Practise this topic'));
+      await tester.tap(find.text('Practise topic'));
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }

@@ -9,8 +9,16 @@ class HighlightText extends StatelessWidget {
   final List<String> words;
   final TextStyle style;
   final int? maxLines;
+  final TextAlign? textAlign;
 
-  const HighlightText(this.text, {super.key, required this.words, required this.style, this.maxLines});
+  const HighlightText(
+    this.text, {
+    super.key,
+    required this.words,
+    required this.style,
+    this.maxLines,
+    this.textAlign,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -26,6 +34,7 @@ class HighlightText extends StatelessWidget {
     if (at < text.length) spans.add(TextSpan(text: text.substring(at)));
     return Text.rich(
       TextSpan(style: style, children: spans),
+      textAlign: textAlign,
       maxLines: maxLines,
       overflow: maxLines == null ? null : TextOverflow.ellipsis,
     );

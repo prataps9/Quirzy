@@ -193,7 +193,7 @@ class _SearchPreviewSheetState extends ConsumerState<SearchPreviewSheet> {
         children: [
           Expanded(
             child: AppButton(
-              label: 'Practise this topic',
+              label: 'Practise topic',
               icon: Icons.play_arrow_rounded,
               onPressed: () => _practise(q),
             ),
@@ -280,7 +280,7 @@ class _FlipCardState extends State<_FlipCard> {
           children: [
             Text(label, style: text.labelMedium!.copyWith(color: p.textMuted)),
             const SizedBox(height: AppSpace.md),
-            HighlightText(body, words: widget.words, style: text.titleMedium!),
+            HighlightText(body, words: widget.words, style: text.titleMedium!, textAlign: TextAlign.center),
           ],
         ),
       ),
