@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../report/models/weekly_report.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
 import '../models/feed_models.dart';
@@ -130,6 +131,80 @@ class RecapShareCard extends StatelessWidget {
             const SizedBox(height: 20),
             Text(
               recap.topTopics.join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: text.bodyMedium!.copyWith(color: p.text),
+            ),
+          ],
+          const Spacer(),
+          Text('Your turn? Practise on Quirzy', style: text.bodySmall!.copyWith(color: p.textMuted)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The weekly report as a story-sized image.
+class WeeklyShareCard extends StatelessWidget {
+  final WeeklyReport report;
+
+  const WeeklyShareCard({super.key, required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    const p = AppPalette.dark;
+    final text = Theme.of(context).textTheme;
+    final max = report.answeredByDay.fold(0, (a, b) => b > a ? b : a);
+
+    Widget stat(String value, String label) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(value, style: text.displaySmall!.copyWith(color: p.text, fontWeight: FontWeight.w800)),
+        Text(label, style: text.bodyMedium!.copyWith(color: p.textMuted)),
+      ],
+    );
+
+    return _StoryFrame(
+      tint: p.bg,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Brand(),
+          const Spacer(),
+          Text('My week', style: text.titleMedium!.copyWith(color: p.accentText)),
+          const SizedBox(height: 16),
+          stat('${report.answered}', 'questions answered'),
+          if (report.accuracy != null) ...[const SizedBox(height: 14), stat('${report.accuracy}%', 'right')],
+          const SizedBox(height: 14),
+          stat('${report.daysActive}/7', 'days practised'),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 64,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final n in report.answeredByDay)
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Container(
+                        width: 18,
+                        height: max == 0 ? 0 : 64 * n / max,
+                        decoration: BoxDecoration(
+                          color: p.accent,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Container(height: 1, color: p.border),
+          if (report.mostPractised != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Most practised: ${report.mostPractised!.topic}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: text.bodyMedium!.copyWith(color: p.text),

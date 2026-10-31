@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../report/widgets/your_week_card.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/theme/app_text.dart';
@@ -93,6 +94,8 @@ class _MyPrepScreenState extends ConsumerState<MyPrepScreen> {
               _DailyTargetCard(stats: stats),
               const SizedBox(height: 12),
               _ActivityTrend(stats: stats),
+              const SizedBox(height: 12),
+              const YourWeekCard(),
               const SizedBox(height: 24),
               Text('Topic accuracy', style: text.titleMedium),
               const SizedBox(height: 10),

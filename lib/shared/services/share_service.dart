@@ -42,6 +42,20 @@ Your turn? #Quirzy
     );
   }
 
+  /// Shares a week's numbers (the text behind the weekly report's image).
+  static Future<void> shareWeek({required int answered, int? accuracy, required int daysActive}) async {
+    final right = accuracy == null ? '' : ', $accuracy% right';
+    final text =
+        '''
+📅 My week on Quirzy: $answered questions$right, $daysActive of 7 days.
+
+Your turn? #Quirzy
+''';
+    await SharePlus.instance.share(
+      ShareParams(text: text, subject: 'My week on Quirzy'),
+    );
+  }
+
   /// Shares a finished Daily 5.
   static Future<void> shareDailyChallenge({required int correct, required int total}) async {
     final text =

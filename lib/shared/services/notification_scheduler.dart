@@ -2,8 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/report/services/weekly_report_service.dart';
 import '../../features/feed/services/feed_revision_service.dart';
-import '../../features/feed/services/feed_stats_service.dart';
 import '../../features/feed/services/streak_service.dart';
 import '../providers/exam_provider.dart';
 import 'smart_notification_service.dart';
@@ -16,11 +16,11 @@ class NotificationScheduler {
   NotificationScheduler({
     SmartNotificationService? notifications,
     StreakService? streaks,
-    FeedStatsService? stats,
+    WeeklyReportService? reports,
     FeedRevisionService? revision,
   })  : _svc = notifications ?? SmartNotificationService(),
         _streaks = streaks ?? StreakService(),
-        _stats = stats ?? FeedStatsService(),
+        _reports = reports ?? WeeklyReportService(),
         _revision = revision ?? FeedRevisionService();
 
   /// Payloads (see [NotificationRoute]) of notifications tapped while the
@@ -50,7 +50,7 @@ class NotificationScheduler {
 
   final SmartNotificationService _svc;
   final StreakService _streaks;
-  final FeedStatsService _stats;
+  final WeeklyReportService _reports;
   final FeedRevisionService _revision;
 
   /// Refreshes everything on app open: revision due, streak protection,
@@ -132,10 +132,12 @@ class NotificationScheduler {
   }
 
   Future<void> _scheduleDigest() async {
-    final weekCounts = await _stats.getDailyAnsweredCounts(days: 7);
+    final (answered, accuracy, change) = await _reports.lastSevenDays();
     final info = await _streaks.getStreak();
     await _svc.scheduleWeeklyDigest(
-      questionsThisWeek: weekCounts.fold<int>(0, (a, b) => a + b),
+      questionsThisWeek: answered,
+      accuracy: accuracy,
+      changePercent: change,
       flashcardsReviewed: await _streaks.flashcardsReviewed(days: 7),
       bestStreak: info.best,
     );

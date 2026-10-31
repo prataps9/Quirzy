@@ -276,6 +276,8 @@ class SmartNotificationService {
 
   Future<void> scheduleWeeklyDigest({
     required int questionsThisWeek,
+    int? accuracy,
+    int? changePercent,
     required int flashcardsReviewed,
     required int bestStreak,
   }) async {
@@ -285,16 +287,17 @@ class SmartNotificationService {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('notif_weekly_digest') ?? true)) return;
 
-    final parts = [
-      '$questionsThisWeek questions',
-      if (flashcardsReviewed > 0) '$flashcardsReviewed cards',
-      '$bestStreak-day streak',
-    ];
-    final body = '${parts.join(' · ')}. Keep the momentum!';
+    final body = weeklyDigestBody(
+      questions: questionsThisWeek,
+      accuracy: accuracy,
+      changePercent: changePercent,
+      flashcards: flashcardsReviewed,
+      bestStreak: bestStreak,
+    );
 
     await _plugin.zonedSchedule(
       _NIds.weeklyDigest,
-      'Your weekly study wrap-up',
+      'Your week on Quirzy',
       body,
       _nextWeekday(DateTime.sunday, 9, 0),
       _details(_Channels.digest, 'Weekly Digest',
@@ -303,6 +306,26 @@ class SmartNotificationService {
       matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
       payload: NotificationRoute.digest,
     );
+  }
+
+  /// "212 questions · 78% right · up 9% on last week. Tap to see your week."
+  static String weeklyDigestBody({
+    required int questions,
+    int? accuracy,
+    int? changePercent,
+    int flashcards = 0,
+    int bestStreak = 0,
+  }) {
+    if (questions == 0) return 'A quiet week. A few questions today gets you going again.';
+    final parts = [
+      '$questions ${questions == 1 ? 'question' : 'questions'}',
+      if (accuracy != null) '$accuracy% right',
+      if (changePercent != null && changePercent != 0)
+        '${changePercent > 0 ? 'up' : 'down'} ${changePercent.abs()}% on last week',
+      if (changePercent == null && flashcards > 0) '$flashcards cards',
+      if (changePercent == null && bestStreak > 1) '$bestStreak-day best streak',
+    ];
+    return '${parts.join(' · ')}. Tap to see your week.';
   }
 
   // ── Re-engagement ─────────────────────────────────────────────────────────

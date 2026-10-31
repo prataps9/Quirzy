@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:quirzy/features/report/screens/weekly_report_screen.dart';
 import 'package:quirzy/features/challenge/models/challenge.dart';
 import 'package:quirzy/features/challenge/providers/challenge_providers.dart';
 import 'package:quirzy/features/challenge/screens/challenge_screen.dart';
@@ -274,6 +275,10 @@ void main() {
       final container = await pumpShell(tester, scheduler);
       await tester.pump(const Duration(milliseconds: 300));
       expect(container.read(tabIndexProvider), 2);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(WeeklyReportScreen), findsOneWidget, reason: 'the weekly notification opens the report');
       await tearDownShell(tester);
     });
   });

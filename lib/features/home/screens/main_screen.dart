@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../report/screens/weekly_report_screen.dart';
 import '../../search/screens/search_screen.dart';
 import '../../../shared/providers/app_action_provider.dart';
 import '../../../shared/providers/providers.dart';
@@ -125,7 +126,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         tabs.state = 0;
       case NotificationRoute.streak:
         await _openDaily();
-      case NotificationRoute.exam || NotificationRoute.digest:
+      case NotificationRoute.digest:
+        tabs.state = 2;
+        unawaited(Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WeeklyReportScreen())));
+      case NotificationRoute.exam:
         tabs.state = 2;
       default:
         tabs.state = 0;
