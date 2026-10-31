@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../search/screens/search_screen.dart';
 import '../../l10n/app_localizations.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
@@ -952,6 +953,13 @@ class _FlashcardsScreenState extends ConsumerState<FlashcardsScreen>
     return TabHeader(
       title: AppLocalizations.of(context)!.navCards,
       subtitle: "Make a set, then review what's due",
+      actions: [
+        IconButton(
+          tooltip: 'Search',
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
+          icon: const Icon(Icons.search_rounded),
+        ),
+      ],
     );
   }
 

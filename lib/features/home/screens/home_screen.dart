@@ -27,6 +27,7 @@ import '../../subscription/widgets/limit_sheet.dart';
 import '../providers/home_stats_provider.dart';
 import '../widgets/home_widgets.dart';
 import '../../plan/widgets/today_plan_card.dart';
+import '../../search/screens/search_screen.dart';
 import '../widgets/daily_challenge_tile.dart';
 import '../widgets/mock_test_tile.dart';
 import '../widgets/paste_challenge_button.dart';
@@ -322,6 +323,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               onStreakTap: () => ref.read(tabIndexProvider.notifier).state = 2,
               showPro: !isPro,
               onProTap: () => openPaywall(context),
+              onSearchTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
             ),
             const Stagger(index: 0, child: TodayPlanCard()),
             const Stagger(index: 1, child: DailyChallengeTile()),
@@ -466,6 +468,7 @@ class _HomeHeader extends StatelessWidget {
   final VoidCallback onStreakTap;
   final bool showPro;
   final VoidCallback onProTap;
+  final VoidCallback onSearchTap;
 
   const _HomeHeader({
     required this.userName,
@@ -475,6 +478,7 @@ class _HomeHeader extends StatelessWidget {
     required this.onStreakTap,
     required this.showPro,
     required this.onProTap,
+    required this.onSearchTap,
   });
 
   @override
@@ -506,6 +510,12 @@ class _HomeHeader extends StatelessWidget {
               ],
             ),
           ),
+          IconButton(
+            tooltip: 'Search',
+            onPressed: onSearchTap,
+            icon: Icon(Icons.search_rounded, color: p.text),
+          ),
+          const SizedBox(width: 4),
           StatChip(
             icon: Icons.local_fire_department_rounded,
             label: '${stats.streak}',

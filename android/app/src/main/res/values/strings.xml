@@ -5,6 +5,8 @@
     <!-- App shortcuts (long-press the app icon) -->
     <string name="shortcut_daily_short">Daily 5</string>
     <string name="shortcut_daily_long">Play today\'s Daily 5</string>
+    <string name="shortcut_search_short">Search</string>
+    <string name="shortcut_search_long">Search your questions and notes</string>
     <string name="shortcut_mock_short">Mock test</string>
     <string name="shortcut_mock_long">Take a mock test</string>
     <string name="shortcut_mistakes_short">Mistakes</string>

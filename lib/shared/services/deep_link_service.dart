@@ -71,6 +71,7 @@ class DeepLinkService {
         'daily' => AppAction.daily,
         'mocktest' => AppAction.mockTest,
         'mistakes' => AppAction.mistakes,
+        'search' => AppAction.search,
         _ => null,
       };
       if (action != null) _openAction(action);

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../search/screens/search_screen.dart';
 import '../../../shared/providers/app_action_provider.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/notification_scheduler.dart';
@@ -91,6 +92,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MockTestScreen()));
       case AppAction.mistakes:
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MistakesScreen()));
+      case AppAction.search:
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchScreen()));
     }
   }
 

@@ -10,6 +10,7 @@ import 'package:quirzy/features/feed/services/feed_ranker.dart';
 import 'package:quirzy/features/home/screens/main_screen.dart';
 import 'package:quirzy/features/mocktest/screens/mock_test_screen.dart';
 import 'package:quirzy/features/progress/screens/mistakes_screen.dart';
+import 'package:quirzy/features/search/screens/search_screen.dart';
 import 'package:quirzy/shared/providers/app_action_provider.dart';
 import 'package:quirzy/shared/providers/providers.dart';
 import 'package:quirzy/shared/services/connectivity_service.dart';
@@ -69,7 +70,7 @@ void main() {
       await tester.pump(const Duration(seconds: 6));
     }
 
-    testWidgets('Mock test and Mistakes open their screens', (tester) async {
+    testWidgets('Mock test, Mistakes and Search open their screens', (tester) async {
       final container = await pumpShell(tester);
       container.read(pendingAppActionProvider.notifier).state = AppAction.mockTest;
       await settle(tester);
@@ -80,6 +81,11 @@ void main() {
       await settle(tester);
       expect(find.byType(MistakesScreen), findsOneWidget);
       expect(find.byType(MockTestScreen), findsNothing, reason: 'opens from the shell, not on top of another screen');
+
+      container.read(pendingAppActionProvider.notifier).state = AppAction.search;
+      await settle(tester);
+      expect(find.byType(SearchScreen), findsOneWidget);
+      expect(find.byType(MistakesScreen), findsNothing);
       await tearDownShell(tester);
     });
 
