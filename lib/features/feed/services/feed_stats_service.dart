@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'activity_log.dart';
+
 class TopicStat {
   final int attempts;
   final int correct;
@@ -39,6 +41,7 @@ class FeedStatsService {
     entry['last'] = (now ?? DateTime.now()).millisecondsSinceEpoch;
     map[t] = entry;
     await prefs.setString(_statsKey, jsonEncode(map));
+    await ActivityLog().record(t, correct, at: now);
   }
 
   Future<Map<String, TopicStat>> getTopicStats() async {

@@ -8,6 +8,7 @@ import '../../feed/services/feed_stats_service.dart';
 import '../../feed/services/mistakes_service.dart';
 import '../../feed/services/streak_service.dart';
 import '../../mocktest/services/mock_test_service.dart';
+import '../../plan/services/study_plan_service.dart';
 import '../models/badge.dart';
 
 /// Works out which badges are earned, from what the app already records,
@@ -67,6 +68,7 @@ class BadgeService {
       mockTests: mocks.length,
       bestMockPercent: mocks.fold(0, (best, r) => r.percent > best ? r.percent : best),
       mistakesFixed: await _mistakes.fixedCount(),
+      planDays: await StudyPlanService().completedDays(),
     );
   }
 

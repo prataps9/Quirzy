@@ -11,6 +11,7 @@ class BadgeMetrics {
   final int mockTests;
   final int bestMockPercent;
   final int mistakesFixed;
+  final int planDays;
 
   const BadgeMetrics({
     this.totalAnswers = 0,
@@ -22,6 +23,7 @@ class BadgeMetrics {
     this.mockTests = 0,
     this.bestMockPercent = 0,
     this.mistakesFixed = 0,
+    this.planDays = 0,
   });
 }
 
@@ -40,6 +42,7 @@ enum BadgeId {
   firstMock,
   mock90,
   fixed10,
+  onPlan,
 }
 
 /// One badge: what it's called, how it's earned, and how far along the user
@@ -178,6 +181,14 @@ class BadgeDef {
       icon: Icons.rule_rounded,
       target: 10,
       measure: (m) => m.mistakesFixed,
+    ),
+    BadgeDef(
+      id: BadgeId.onPlan,
+      title: 'On plan',
+      description: "Finish the day's study plan on 5 days.",
+      icon: Icons.checklist_rounded,
+      target: 5,
+      measure: (m) => m.planDays,
     ),
   ];
 }

@@ -75,9 +75,23 @@ class FeedRevisionService {
 
   /// Called after every feed answer (wrong OR right). Only questions that
   /// have entered the vault via a wrong answer ever progress or graduate.
+  static String _reviewedKey(DateTime day) =>
+      'revision_reviewed_${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+  /// Due questions answered today: the study plan's revision progress.
+  Future<int> reviewedToday() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_reviewedKey(DateTime.now())) ?? 0;
+  }
+
   Future<void> recordOutcome(PracticeQuestion question, bool correct) async {
     final entries = await _load();
     final index = entries.indexWhere((e) => e.question.id == question.id);
+    if (index >= 0 && !entries[index].dueDate.isAfter(DateTime.now())) {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _reviewedKey(DateTime.now());
+      await prefs.setInt(key, (prefs.getInt(key) ?? 0) + 1);
+    }
 
     if (!correct) {
       final reset = _RevisionEntry(

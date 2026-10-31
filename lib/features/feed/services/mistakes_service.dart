@@ -135,13 +135,28 @@ class MistakesService {
   /// Every mistake, most recently missed first.
   Future<List<MistakeEntry>> all() async => (await _read())..sort((a, b) => b.lastWrongMs.compareTo(a.lastWrongMs));
 
+  static String _reviewedKey(DateTime day) =>
+      'mistakes_reviewed_${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+
+  /// Mistakes answered again on [day] (today by default), right or wrong:
+  /// the study plan's "fix your mistakes" progress.
+  Future<int> reviewedOn([DateTime? day]) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_reviewedKey(day ?? DateTime.now())) ?? 0;
+  }
+
   /// Records an answer to [question]. A wrong one adds it (or counts it
   /// again); a right one counts towards fixing a question already here.
   Future<void> recordAnswer(PracticeQuestion question, {required bool correct, int? pick, DateTime? now}) async {
     final entries = await _read();
     final key = question.engagementKey;
     final index = entries.indexWhere((e) => e.key == key);
-    final ms = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    final when = now ?? DateTime.now();
+    final ms = when.millisecondsSinceEpoch;
+    if (index >= 0 && !entries[index].fixed) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_reviewedKey(when), (prefs.getInt(_reviewedKey(when)) ?? 0) + 1);
+    }
 
     if (correct) {
       if (index < 0) return;

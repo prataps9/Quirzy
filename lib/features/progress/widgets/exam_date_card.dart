@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/theme/app_palette.dart';
 import '../../../shared/widgets/app_widgets.dart';
+import '../../plan/models/study_plan.dart';
+import '../../plan/providers/study_plan_providers.dart';
 
 /// Lets the user pick their exam date (today or later) and saves it, which
 /// also reschedules the exam countdown notification. Returns true if a
@@ -53,6 +55,13 @@ class ExamDateCard extends ConsumerWidget {
       }
       subtitle = days < 0 ? 'Set your next exam date.' : label;
     }
+    // How the last week's pace compares with what's needed (from the plan).
+    final plan = date == null ? null : ref.watch(studyPlanProvider).value;
+    final (String, Color)? pace = switch (plan?.pace) {
+      PlanPace.onTrack => ('On track · you average ${plan!.averagePerDay} a day', p.success),
+      PlanPace.behind => ('Aim for ${plan!.neededPerDay} a day · you average ${plan.averagePerDay}', p.danger),
+      _ => null,
+    };
 
     return AppCard(
       onTap: () {
@@ -70,6 +79,10 @@ class ExamDateCard extends ConsumerWidget {
                 Text(title, style: text.titleMedium),
                 const SizedBox(height: 2),
                 Text(subtitle, style: text.bodySmall),
+                if (pace != null) ...[
+                  const SizedBox(height: 2),
+                  Text(pace.$1, style: text.bodySmall!.copyWith(color: pace.$2, fontWeight: FontWeight.w600)),
+                ],
               ],
             ),
           ),

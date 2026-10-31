@@ -26,6 +26,7 @@ import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
 import '../providers/home_stats_provider.dart';
 import '../widgets/home_widgets.dart';
+import '../../plan/widgets/today_plan_card.dart';
 import '../widgets/daily_challenge_tile.dart';
 import '../widgets/mock_test_tile.dart';
 import '../widgets/paste_challenge_button.dart';
@@ -322,10 +323,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               showPro: !isPro,
               onProTap: () => openPaywall(context),
             ),
-            const Stagger(index: 0, child: DailyChallengeTile()),
-            const Stagger(index: 1, child: MockTestTile()),
-            const Stagger(index: 2, child: PasteChallengeButton()),
-            const Stagger(index: 3, child: TopicStoriesRow()),
+            const Stagger(index: 0, child: TodayPlanCard()),
+            const Stagger(index: 1, child: DailyChallengeTile()),
+            const Stagger(index: 2, child: MockTestTile()),
+            const Stagger(index: 3, child: PasteChallengeButton()),
+            const Stagger(index: 4, child: TopicStoriesRow()),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
               child: Column(
