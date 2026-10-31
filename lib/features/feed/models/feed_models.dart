@@ -257,7 +257,7 @@ class FeedCardState {
   /// Why the feed picked this card, e.g. "Because you liked Physics".
   final String? reason;
 
-  /// Inserted on request (Deep Dive "Similar"), so re-ranking keeps it.
+  /// Inserted on request (Deep Dive "Related questions"), so re-ranking keeps it.
   final bool pinned;
 
   /// True/False: the option shown, and what the user answered.

@@ -9,11 +9,14 @@ import '../../../shared/theme/app_text.dart';
 import '../../../shared/utils/user_messages.dart';
 import '../../../shared/widgets/app_widgets.dart';
 import '../../flashcards/providers/flashcard_providers.dart';
+import '../../../shared/widgets/motion.dart';
 import '../../subscription/services/usage_limits.dart';
 import '../../subscription/widgets/limit_sheet.dart';
 import '../models/feed_models.dart';
 import '../providers/feed_providers.dart';
 import '../services/explain_service.dart';
+import '../services/related_questions.dart';
+import 'related_row.dart';
 
 /// The solution panel: the answer and its explanation, an "Ask AI" box for
 /// a simpler explanation or an example, the user's own note, a one-tap save
@@ -47,6 +50,7 @@ class _DeepDiveSheetState extends ConsumerState<DeepDiveSheet> {
   bool _noteLoaded = false;
 
   bool _cardSaved = false;
+  List<RelatedQuestion> _related = const [];
 
   ExplainMode? _mode;
   String? _answer;
@@ -61,6 +65,9 @@ class _DeepDiveSheetState extends ConsumerState<DeepDiveSheet> {
     _loadNote();
     ref.read(savedCardsServiceProvider).isSaved(_q).then((saved) {
       if (mounted) setState(() => _cardSaved = saved);
+    });
+    ref.read(feedControllerProvider.notifier).relatedTo(_q).then((related) {
+      if (mounted) setState(() => _related = related);
     });
   }
 
@@ -149,7 +156,7 @@ class _DeepDiveSheetState extends ConsumerState<DeepDiveSheet> {
     final p = context.palette;
     final text = Theme.of(context).textTheme;
     final controller = ref.read(feedControllerProvider.notifier);
-    final similar = controller.similarTo(_q);
+    final related = _related;
     final remaining = ref.watch(usageLimitsProvider).value?.remaining(UsageKind.aiExplain);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
@@ -211,37 +218,39 @@ class _DeepDiveSheetState extends ConsumerState<DeepDiveSheet> {
                 icon: Icons.style_rounded,
                 onPressed: _saveCard,
               ),
-            if (similar.isNotEmpty) ...[
+            if (related.isNotEmpty) ...[
               const SizedBox(height: 26),
-              Text('Similar questions', style: text.titleMedium),
+              Semantics(header: true, child: Text('Related questions', style: text.titleMedium)),
               const SizedBox(height: 10),
-              for (final q in similar)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(AppRadius.control),
-                    onTap: () {
-                      controller.insertNext(widget.cardIndex, q);
-                      Navigator.of(context).pop();
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: p.border),
-                        borderRadius: BorderRadius.circular(AppRadius.control),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(q.questionText, maxLines: 2, overflow: TextOverflow.ellipsis, style: text.bodyMedium),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.chevron_right_rounded, size: 20, color: p.accentText),
-                        ],
-                      ),
+              for (final (i, r) in related.indexed)
+                Stagger(
+                  key: ValueKey(r.question.engagementKey),
+                  index: i,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: RelatedRow(
+                      related: r,
+                      showTopic: r.question.topicName != _q.topicName,
+                      onTap: () {
+                        controller.insertNext(widget.cardIndex, r.question);
+                        Navigator.of(context).pop();
+                      },
                     ),
                   ),
                 ),
+              const SizedBox(height: 4),
+              AppButton(
+                label: 'Practise these ${related.length} next',
+                icon: Icons.playlist_play_rounded,
+                onPressed: () {
+                  final added = controller.queueNext(widget.cardIndex, [for (final r in related) r.question]);
+                  final messenger = ScaffoldMessenger.maybeOf(context);
+                  Navigator.of(context).pop();
+                  messenger?.showSnackBar(
+                    SnackBar(content: Text('$added ${added == 1 ? 'question' : 'questions'} added next')),
+                  );
+                },
+              ),
             ],
           ],
         );

@@ -97,6 +97,29 @@ void main() {
     await _close(tester);
   });
 
+  testWidgets('Related questions are tagged, and one tap queues them all next', (tester) async {
+    await _openSolution(tester, ExplainService(call: (_) async => 'x'));
+    await _scrollTo(tester, find.text('Related questions'));
+    expect(find.text('Related questions'), findsOneWidget);
+    expect(find.text('New'), findsWidgets);
+    await _scrollTo(tester, find.text('Practise these 5 next'));
+    final container = ProviderScope.containerOf(tester.element(find.byType(FeedScreen)));
+    final shown = container.read(feedControllerProvider).cards.where((c) => c.reason == 'Related question').length;
+    expect(shown, 0);
+    await tester.tap(find.text('Practise these 5 next'));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('Solution'), findsNothing);
+    expect(find.text('5 questions added next'), findsOneWidget);
+    final cards = container.read(feedControllerProvider).cards;
+    // Five of them now sit one after another (one may already have been next).
+    final flagged = [for (var i = 0; i < cards.length; i++) if (cards[i].reason == 'Related question') i];
+    expect(flagged.length, inInclusiveRange(4, 5));
+    expect([for (var i = 1; i < flagged.length; i++) flagged[i] - flagged[i - 1]], everyElement(1));
+    await _close(tester);
+  });
+
   testWidgets('a failed Ask AI shows a calm message with Retry', (tester) async {
     var attempts = 0;
     final explain = ExplainService(call: (_) async {

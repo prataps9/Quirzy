@@ -14,6 +14,8 @@ import '../../feed/models/feed_models.dart';
 import '../../feed/providers/feed_providers.dart';
 import '../../feed/services/question_notes_service.dart';
 import '../models/search_index.dart';
+import '../../feed/services/related_questions.dart';
+import '../../feed/widgets/related_row.dart';
 import 'highlight_text.dart';
 
 /// A search result up close. A question shows its options with the answer
@@ -43,6 +45,49 @@ class _SearchPreviewSheetState extends ConsumerState<SearchPreviewSheet> {
   late SearchItem _item = widget.item;
   bool _revealed = false;
   bool _changed = false;
+  List<RelatedQuestion> _related = const [];
+  final _scroll = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRelated();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadRelated() async {
+    final q = _item.question;
+    if (q == null) return;
+    final related = await ref.read(feedControllerProvider.notifier).relatedTo(q, limit: 3);
+    if (mounted && _item.question == q) setState(() => _related = related);
+  }
+
+  /// Follows a related question in place, so a chain of them can be read
+  /// without leaving search.
+  Future<void> _openRelated(RelatedQuestion r) async {
+    HapticFeedback.selectionClick();
+    final q = r.question;
+    final saved = (await ref.read(feedBookmarkServiceProvider).getBookmarkedIds()).contains(q.id);
+    final note = await ref.read(questionNotesServiceProvider).noteFor(q);
+    if (!mounted) return;
+    setState(() {
+      _item = SearchItem.question(
+        q,
+        saved: saved,
+        mistake: r.status == RelatedStatus.missed,
+        note: note.isEmpty ? null : note,
+      );
+      _revealed = false;
+      _related = const [];
+    });
+    if (_scroll.hasClients) unawaited(_scroll.animateTo(0, duration: AppMotion.of(context, AppMotion.base), curve: AppMotion.enter));
+    unawaited(_loadRelated());
+  }
 
   void _close() => Navigator.of(context).pop(_changed);
 
@@ -102,6 +147,7 @@ class _SearchPreviewSheetState extends ConsumerState<SearchPreviewSheet> {
         constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.88),
         child: SafeArea(
           child: SingleChildScrollView(
+            controller: _scroll,
             padding: const EdgeInsets.fromLTRB(AppSpace.xl, AppSpace.sm, AppSpace.xl, AppSpace.xl),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -207,6 +253,16 @@ class _SearchPreviewSheetState extends ConsumerState<SearchPreviewSheet> {
           ),
         ],
       ),
+      if (_related.isNotEmpty) ...[
+        const SizedBox(height: AppSpace.xl),
+        Semantics(header: true, child: Text('Related', style: text.titleMedium)),
+        const SizedBox(height: AppSpace.sm),
+        for (final r in _related)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpace.sm),
+            child: RelatedRow(related: r, showTopic: r.question.topicName != q.topicName, onTap: () => _openRelated(r)),
+          ),
+      ],
     ];
   }
 }

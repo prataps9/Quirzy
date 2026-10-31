@@ -17,6 +17,7 @@ import '../models/feed_models.dart';
 import '../models/topic_mastery.dart';
 import '../services/daily_challenge_service.dart';
 import '../services/explain_service.dart';
+import '../services/related_questions.dart';
 import '../services/feed_bookmark_service.dart';
 import '../services/feed_engagement_service.dart';
 import '../services/feed_mixer.dart';
@@ -1186,17 +1187,35 @@ class FeedController extends Notifier<FeedState> {
     ref.invalidate(mistakeInsightProvider);
   }
 
-  List<PracticeQuestion> similarTo(PracticeQuestion question, {int limit = 3}) {
-    final topic = question.topic;
-    if (topic == null || topic.trim().isEmpty) return const [];
-    return _fullPool
-        .where((q) => q.id != question.id && q.topic == topic)
-        .take(limit)
-        .toList();
+  /// The questions most worth doing next to [question]: related in words
+  /// and topic, leaning to ones the user missed or has not seen. Never
+  /// includes reported questions or muted topics (the eligible pool).
+  Future<List<RelatedQuestion>> relatedTo(PracticeQuestion question, {int limit = 5}) async {
+    final mistakes = await ref.read(mistakesServiceProvider).all();
+    return RelatedQuestions.rank(
+      question,
+      _eligible,
+      seen: _engagement.seen.keys.toSet(),
+      missed: {
+        for (final m in mistakes)
+          if (!m.fixed) m.question.engagementKey,
+      },
+      limit: limit,
+    );
+  }
+
+  /// Puts [questions] next, in order, right after the card at [afterIndex].
+  /// Returns how many were queued.
+  int queueNext(int afterIndex, List<PracticeQuestion> questions) {
+    var at = afterIndex;
+    for (final q in questions) {
+      at = insertNext(at, q);
+    }
+    return questions.length;
   }
 
   /// Inserts [question] right after [afterIndex] (or jumps to it if it's
-  /// already coming up) — used when tapping a "Similar" question in the
+  /// already coming up) — used when tapping a related question in the
   /// Deep Dive drawer. Returns the index to scroll to.
   int insertNext(int afterIndex, PracticeQuestion question) {
     final cards = List<FeedCardState>.from(state.cards);
@@ -1217,7 +1236,7 @@ class FeedController extends Notifier<FeedState> {
           question: card.question,
           bookmarked: card.bookmarked,
           liked: card.liked,
-          reason: 'Similar question',
+          reason: 'Related question',
           pinned: true,
           tfShownOption: card.tfShownOption,
         ),
@@ -1226,7 +1245,7 @@ class FeedController extends Notifier<FeedState> {
       return insertAt;
     }
 
-    cards.insert(insertAt, _card(question, reason: 'Similar question', pinned: true));
+    cards.insert(insertAt, _card(question, reason: 'Related question', pinned: true));
     if (state.lane.isInfinite) _session.enqueue(question);
     state = state.copyWith(cards: cards);
     return insertAt;

@@ -316,6 +316,25 @@ void main() {
       await settle(tester);
     });
 
+    testWidgets('a preview lists related questions and follows one in place', (tester) async {
+      await pumpSearch(tester);
+      await type(tester, 'preamble');
+      await tester.tap(find.textContaining('Preamble', findRichText: true));
+      await frames(tester);
+      expect(find.text('Related'), findsOneWidget);
+      await tester.tap(find.text('Show answer'));
+      await frames(tester);
+      expect(find.text('Show answer'), findsNothing);
+
+      await tester.ensureVisible(find.textContaining('schedules'));
+      await tester.tap(find.textContaining('schedules'));
+      await frames(tester);
+      expect(find.byType(SearchPreviewSheet), findsOneWidget, reason: 'still in the same sheet');
+      expect(find.textContaining('How many schedules', findRichText: true), findsOneWidget);
+      expect(find.text('Show answer'), findsOneWidget, reason: 'the answer is hidden again');
+      await settle(tester);
+    });
+
     testWidgets('mistakes are found and tagged', (tester) async {
       await MistakesService().recordAnswer(pool[2], correct: false);
       await pumpSearch(tester);
