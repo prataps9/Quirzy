@@ -27,6 +27,7 @@ class _ExamSelectionScreenState extends ConsumerState<ExamSelectionScreen> {
     (id: 'cat', icon: Icons.insights_rounded),
     (id: 'mba', icon: Icons.business_center_rounded),
     (id: 'gmat', icon: Icons.query_stats_rounded),
+    (id: 'sat', icon: Icons.edit_note_rounded),
     (id: 'gre', icon: Icons.trending_up_rounded),
     (id: 'ielts', icon: Icons.translate_rounded),
     (id: '12th', icon: Icons.auto_stories_rounded),

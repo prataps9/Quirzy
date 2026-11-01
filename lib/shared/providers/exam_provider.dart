@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../features/content/services/exam_bank_service.dart';
+import '../../features/feed/providers/feed_providers.dart';
 import '../services/notification_scheduler.dart';
 
 final examProvider = NotifierProvider<ExamNotifier, String?>(ExamNotifier.new);
@@ -23,6 +25,13 @@ class ExamNotifier extends Notifier<String?> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('selected_exam', exam);
     state = exam;
+    // Give the new exam its bundled practice questions right away.
+    try {
+      final added = await ExamBankService().seed(exam);
+      if (added > 0) await ref.read(feedControllerProvider.notifier).onContentAdded();
+    } catch (_) {
+      // Practice content is a bonus; choosing an exam must never fail.
+    }
   }
 
   bool get hasSelected => state != null;
@@ -40,6 +49,7 @@ const Map<String, String> kExamNames = {
   'ielts': 'IELTS',
   'gre': 'GRE',
   'gmat': 'GMAT',
+  'sat': 'SAT',
 };
 
 /// A readable name for [examId], or "your exam" when none is chosen.

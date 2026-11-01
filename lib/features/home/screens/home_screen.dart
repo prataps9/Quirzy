@@ -451,6 +451,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
       'mba': ['Data Interpretation', 'Critical Reasoning', 'Sentence Correction'],
       'gre': ['Vocabulary', 'Quantitative Reasoning', 'Analytical Writing'],
       'gmat': ['Critical Reasoning', 'Data Sufficiency', 'Sentence Correction'],
+      'sat': ['Algebra', 'Reading Comprehension', 'Grammar & Usage', 'Vocabulary'],
       'ielts': ['Reading Skills', 'Grammar', 'Academic Vocabulary'],
       '10th': ['Algebra', 'Trigonometry', 'Chemistry Basics', 'Biology Basics'],
       '12th': ['Integration', 'Electrostatics', 'Chemical Bonding', 'Human Reproduction'],

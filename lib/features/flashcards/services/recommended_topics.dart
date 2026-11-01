@@ -80,6 +80,14 @@ const Map<String, List<String>> recommendedTopicsByExam = {
     'Reading Comprehension Strategies',
     'Probability and Combinatorics',
   ],
+  'sat': [
+    'Words in Context: Vocabulary',
+    'Linear Equations and Systems',
+    'Grammar Rules: Punctuation and Agreement',
+    'Reading Evidence Questions',
+    'Percentages and Ratios',
+    'Geometry and Trigonometry Basics',
+  ],
   'upsc': [
     'Indian Constitution',
     'Modern Indian History',

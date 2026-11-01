@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../content/services/exam_bank_service.dart';
 import '../../report/screens/weekly_report_screen.dart';
 import '../../search/screens/search_screen.dart';
 import '../../../shared/providers/app_action_provider.dart';
@@ -140,6 +141,17 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getString('selected_exam') == null && mounted) {
       await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ExamSelectionScreen()));
+    }
+    if (!mounted) return;
+    // Learners who chose their exam before the bundled questions existed get
+    // them now; a no-op once added.
+    final exam = prefs.getString('selected_exam');
+    if (exam != null) {
+      try {
+        if (await ExamBankService().seed(exam) > 0 && mounted) {
+          await ref.read(feedControllerProvider.notifier).onContentAdded();
+        }
+      } catch (_) {}
     }
     if (!mounted) return;
     // Ask for notification permission once, after onboarding rather than

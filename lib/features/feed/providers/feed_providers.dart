@@ -578,6 +578,14 @@ class FeedController extends Notifier<FeedState> {
 
   Future<void> reshuffleCurrentLane() => switchLane(state.lane);
 
+  /// Picks up questions added to storage elsewhere (the bundled exam set
+  /// for a newly chosen exam). If the feed was empty it starts showing them.
+  Future<void> onContentAdded() async {
+    _fullPool = await ref.refresh(feedQuestionPoolProvider.future);
+    ref.invalidate(feedLanesProvider);
+    if (state.cards.isEmpty) await switchLane(state.lane);
+  }
+
   /// Refreshes the pool from storage (picking up questions just added
   /// elsewhere, e.g. a freshly generated/added topic) and switches straight
   /// to a lane for [topic].
