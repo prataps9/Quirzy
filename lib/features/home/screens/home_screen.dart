@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../content/widgets/word_of_day_card.dart';
 import '../../../shared/providers/exam_provider.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/services/connectivity_service.dart';
@@ -326,10 +327,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               onSearchTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SearchScreen())),
             ),
             const Stagger(index: 0, child: TodayPlanCard()),
-            const Stagger(index: 1, child: DailyChallengeTile()),
-            const Stagger(index: 2, child: MockTestTile()),
-            const Stagger(index: 3, child: PasteChallengeButton()),
-            const Stagger(index: 4, child: TopicStoriesRow()),
+            const Stagger(index: 1, child: WordOfDayCard()),
+            const Stagger(index: 2, child: DailyChallengeTile()),
+            const Stagger(index: 3, child: MockTestTile()),
+            const Stagger(index: 4, child: PasteChallengeButton()),
+            const Stagger(index: 5, child: TopicStoriesRow()),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
               child: Column(

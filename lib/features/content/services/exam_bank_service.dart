@@ -1,7 +1,21 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../feed/models/feed_models.dart';
 import '../../feed/services/practice_content_service.dart';
 import '../data/exam_bank.dart';
+
+/// An English word with its meaning and an example sentence, taken from a
+/// bundled "What does X mean?" question.
+class WordOfDay {
+  final String word;
+  final String meaning;
+  final String example;
+
+  /// The question it came from, for saving it as a flashcard.
+  final PracticeQuestion question;
+
+  const WordOfDay({required this.word, required this.meaning, required this.example, required this.question});
+}
 
 /// Puts the bundled exam questions (SAT, GMAT, CAT and the shared aptitude
 /// and English-words sets) into the feed's question store for the exam the
@@ -106,5 +120,45 @@ class ExamBankService {
     }
     if (chosen.length == topics.length) await prefs.setBool(_seededKey(exam), true);
     return chosen.length;
+  }
+
+  static final _wordQuestion = RegExp(r'^What does "(.+)" mean\?$');
+
+  /// Every word [exam] has a meaning question for, in bank order.
+  static List<WordOfDay> wordsFor(String exam) {
+    final id = examKey(exam);
+    final words = <WordOfDay>[];
+    for (var i = 0; i < examBank.length; i++) {
+      final q = examBank[i];
+      if (q.topic != 'Vocabulary' || !q.examIds.contains(id)) continue;
+      final match = _wordQuestion.firstMatch(q.text);
+      if (match == null) continue;
+      final at = q.explanation.indexOf('Example: ');
+      words.add(
+        WordOfDay(
+          word: match.group(1)!,
+          meaning: q.options[q.correct],
+          example: at < 0 ? '' : q.explanation.substring(at + 'Example: '.length),
+          question: PracticeQuestion(
+            id: idOf(i),
+            questionText: q.text,
+            options: q.options,
+            correctIndex: q.correct,
+            explanation: q.explanation,
+            topic: q.topic,
+          ),
+        ),
+      );
+    }
+    return words;
+  }
+
+  /// Today's word: the same all day, a new one each day, cycling through
+  /// every word. Null when [exam] has no words.
+  static WordOfDay? wordOfTheDay(String exam, DateTime day) {
+    final words = wordsFor(exam);
+    if (words.isEmpty) return null;
+    final days = DateTime.utc(day.year, day.month, day.day).difference(DateTime.utc(2025)).inDays;
+    return words[days % words.length];
   }
 }

@@ -76,6 +76,43 @@ void main() {
     });
   });
 
+  group('Word of the day', () {
+    test('every word has a meaning and an example', () {
+      final words = ExamBankService.wordsFor('sat');
+      expect(words.length, greaterThanOrEqualTo(40));
+      for (final w in words) {
+        expect(w.word, isNotEmpty);
+        expect(w.meaning, isNotEmpty);
+        expect(w.example.length, greaterThan(10), reason: w.word);
+        expect(w.question.options[w.question.correctIndex], w.meaning);
+      }
+      final ephemeral = words.firstWhere((w) => w.word == 'ephemeral');
+      expect(ephemeral.meaning, 'Lasting a very short time');
+      expect(ephemeral.example, startsWith('The ephemeral beauty'));
+      expect(ephemeral.question.id, 'bank_vocabulary_1', reason: 'old words keep their ids');
+    });
+
+    test('is the same all day, changes each day and cycles through every word', () {
+      final morning = ExamBankService.wordOfTheDay('sat', DateTime(2026, 11, 2, 6));
+      final night = ExamBankService.wordOfTheDay('sat', DateTime(2026, 11, 2, 23, 59));
+      expect(morning!.word, night!.word);
+      final next = ExamBankService.wordOfTheDay('sat', DateTime(2026, 11, 3));
+      expect(next!.word, isNot(morning.word));
+
+      final count = ExamBankService.wordsFor('sat').length;
+      final seen = {
+        for (var d = 0; d < count; d++) ExamBankService.wordOfTheDay('sat', DateTime(2026, 11, 2 + d))!.word,
+      };
+      expect(seen, hasLength(count));
+      expect(ExamBankService.wordOfTheDay('sat', DateTime(2026, 11, 2 + count))!.word, morning.word);
+    });
+
+    test('exams without English words get none', () {
+      expect(ExamBankService.wordOfTheDay('jee', DateTime(2026, 11, 2)), isNull);
+      expect(ExamBankService.wordOfTheDay('mba', DateTime(2026, 11, 2)), isNotNull);
+    });
+  });
+
   group('ExamBankService.seed', () {
     Future<List<PracticeQuestion>> pool() => PracticeContentService.instance.getQuestionPool();
 

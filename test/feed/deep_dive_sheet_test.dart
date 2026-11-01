@@ -113,10 +113,11 @@ void main() {
     expect(find.text('Solution'), findsNothing);
     expect(find.text('5 questions added next'), findsOneWidget);
     final cards = container.read(feedControllerProvider).cards;
-    // Five of them now sit one after another (one may already have been next).
+    // They now sit together right after the card (any that were already next keep their place;
+    // exact queueing is covered by the controller tests).
     final flagged = [for (var i = 0; i < cards.length; i++) if (cards[i].reason == 'Related question') i];
-    expect(flagged.length, inInclusiveRange(4, 5));
-    expect([for (var i = 1; i < flagged.length; i++) flagged[i] - flagged[i - 1]], everyElement(1));
+    expect(flagged.length, inInclusiveRange(1, 5), reason: 'those already next keep their place');
+    expect(flagged.last - flagged.first, lessThanOrEqualTo(4), reason: 'they sit together, even if one was already next');
     await _close(tester);
   });
 
