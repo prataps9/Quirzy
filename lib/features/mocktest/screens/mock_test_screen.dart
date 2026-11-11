@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../shared/providers/exam_provider.dart';
+import '../models/exam_sections.dart';
 import '../../../shared/providers/providers.dart';
 import '../../../shared/theme/app_motion.dart';
 import '../../../shared/theme/app_palette.dart';
@@ -105,6 +107,9 @@ class _SetupViewState extends ConsumerState<_SetupView> {
   final Set<String> _excluded = {};
   int _length = 20;
 
+  /// The exam section picked above the topics, if the topics still match it.
+  String? _section;
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -121,6 +126,8 @@ class _SetupViewState extends ConsumerState<_SetupView> {
       for (final t in topics)
         if (!_excluded.contains(t)) t,
     };
+    final sections = ExamSections.withQuestions(ref.watch(examProvider), counts);
+    final section = sections.where((s) => s.name == _section).firstOrNull;
     final available = chosen.fold(0, (sum, t) => sum + counts[t]!);
     final length = available == 0 ? 0 : (available < _length ? available : _length);
 
@@ -183,6 +190,40 @@ class _SetupViewState extends ConsumerState<_SetupView> {
                     style: text.bodyMedium!.copyWith(color: p.textMuted),
                   ),
                   const SizedBox(height: 24),
+                  if (sections.isNotEmpty) ...[
+                    Text('Exam sections', style: text.titleMedium),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final s in sections)
+                          ChoiceChip(
+                            label: Text(s.name),
+                            selected: section == s,
+                            showCheckmark: false,
+                            onSelected: (on) => setState(() {
+                              _excluded.clear();
+                              if (on) {
+                                _section = s.name;
+                                _excluded.addAll(topics.where((t) => !s.topics.contains(t)));
+                              } else {
+                                _section = null;
+                              }
+                            }),
+                          ),
+                      ],
+                    ),
+                    if (section != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          section.available(counts).join(', '),
+                          style: text.bodySmall!.copyWith(color: p.textMuted),
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                  ],
                   Text('Topics', style: text.titleMedium),
                   const SizedBox(height: 10),
                   Wrap(
@@ -192,8 +233,13 @@ class _SetupViewState extends ConsumerState<_SetupView> {
                       for (final t in topics)
                         FilterChip(
                           label: Text('$t (${counts[t]})'),
+                          // Selected chips sit on the accent colour: dark text.
+                          labelStyle: chosen.contains(t) ? text.labelMedium!.copyWith(color: p.onAccent) : null,
                           selected: chosen.contains(t),
-                          onSelected: (on) => setState(() => on ? _excluded.remove(t) : _excluded.add(t)),
+                          onSelected: (on) => setState(() {
+                            _section = null;
+                            on ? _excluded.remove(t) : _excluded.add(t);
+                          }),
                         ),
                     ],
                   ),

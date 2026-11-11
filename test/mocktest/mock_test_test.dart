@@ -90,7 +90,9 @@ void main() {
 
     test('a saved test comes back exactly as it was', () async {
       final service = MockTestService(random: math.Random(4));
-      final test = service.build(pool, length: 10).copyWith(answers: {0: 1, 3: 0}, flagged: {3}, usedSeconds: 42, current: 3);
+      final test = service
+          .build(pool, length: 10)
+          .copyWith(answers: {0: 1, 3: 0}, flagged: {3}, usedSeconds: 42, current: 3);
       await service.saveInProgress(test);
       final back = (await service.loadInProgress())!;
       expect(back.id, test.id);
